@@ -1,0 +1,6 @@
+# Claude Code internal files
+.claude/
+
+# Python bytecode
+__pycache__/
+*.pyc
