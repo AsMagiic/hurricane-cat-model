@@ -235,4 +235,4 @@ hurricane-cat-model/
 
 ---
 
-*Built by Emiliano Gaston Lopez - www.linkedin.com/in/emiliano-gastón-lópez-b278753a1 - A learning project demonstrating end-to-end catastrophe-model construction; not for production pricing or risk-transfer decisions.*
+*Built by Emiliano Gaston Lopez - www.linkedin.com/in/emiliano-gaston-lopez-actuarial - A learning project demonstrating end-to-end catastrophe-model construction; not for production pricing or risk-transfer decisions.*
