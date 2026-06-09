@@ -12,3 +12,14 @@ outputs/event_loss_table*.csv
 
 # Step 4+ simulation results (reproducible by seed; not committed)
 results/
+!results/summary_metrics.csv
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# OS / editor artifacts
+.DS_Store
+Thumbs.db
+.vscode/
