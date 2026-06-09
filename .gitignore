@@ -4,3 +4,8 @@
 # Python bytecode
 __pycache__/
 *.pyc
+
+# Large generated catalog outputs (produced by full simulation runs)
+outputs/catalog/
+outputs/hazard_catalog*.csv
+outputs/event_loss_table*.csv
