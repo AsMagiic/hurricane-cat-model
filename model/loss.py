@@ -32,6 +32,7 @@ sys.path.insert(0, _DIR)
 
 from hazard        import simulate_year, wind_at_locations, LAMBDA
 from vulnerability import GUST_FACTOR, GUST_THRESHOLD, CONSTRUCTION_PARAMS
+from ep_utils      import oep_pml, ep_curve, pml_rank_diagnostic
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -249,16 +250,18 @@ def validate_and_report(events_df, annual_df,
 
     # ---- PML eyeball -----------------------------------------------------
     print()
-    agg_sorted = np.sort(annual_df["aggregate_gross"].to_numpy())[::-1]
-    oep_sorted = np.sort(annual_df["max_event_gross"].to_numpy())[::-1]
-    ep         = np.arange(1, n_years + 1) / n_years
+    oep_gross_arr = annual_df["max_event_gross"].to_numpy()
+    agg_gross_arr = annual_df["aggregate_gross"].to_numpy()
+    oep_sorted, _ = ep_curve(oep_gross_arr, n_years)   # sorted desc; used for diagnostics
     print(f"  {'Return period':<14} {'AEP gross (USD M)':>20} {'OEP gross (USD M)':>20}")
     print("  " + "-" * 56)
     for rp in [100, 250]:
-        pml_aep = float(np.interp(1 / rp, ep, agg_sorted))
-        pml_oep = float(np.interp(1 / rp, ep, oep_sorted))
+        pml_aep = oep_pml(agg_gross_arr, rp, n_years)
+        pml_oep = oep_pml(oep_gross_arr, rp, n_years)
         print(f"  1-in-{rp:<9}  {pml_aep / 1e6:>18.1f}  {pml_oep / 1e6:>18.1f}")
     print("  (v1 parametric reference: AEP 1-in-100 ~100M | 1-in-250 ~142M)")
+    print()
+    pml_rank_diagnostic(oep_sorted, n_years)   # raw rank sanity check
 
     # ---- AAL by construction type ----------------------------------------
     print()
