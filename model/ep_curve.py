@@ -171,7 +171,7 @@ fig.tight_layout()
 # Save to outputs/
 # ---------------------------------------------------------------------------
 output_path = os.path.join(
-    os.path.dirname(os.path.dirname(__file__)), "outputs", "aep_curve.png"
+    os.path.dirname(os.path.dirname(__file__)), "outputs", "ep_curves.png"
 )
 fig.savefig(output_path, dpi=150)
 print(f"\nPlot saved to: {output_path}")
