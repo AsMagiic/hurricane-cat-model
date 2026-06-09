@@ -4,7 +4,7 @@
 
 The model builds a book of 1,000 insured locations, simulates 100,000 years of stochastic hurricanes as moving wind footprints, translates wind to damage through construction-specific vulnerability curves, applies per-policy financial terms, and prices the effect of an excess-of-loss (XoL) reinsurance tower on the portfolio's tail — reporting the loss distribution **gross and net of reinsurance**.
 
-> **Note on scope.** A learning / portfolio project built to demonstrate the conceptual engine behind production catastrophe models (RMS, Verisk Touchstone, CoreLogic). The *method* now mirrors the full vendor-model pipeline — exposure, hazard, vulnerability, financial, and reinsurance — not just aggregate loss simulation. The *input parameters* are illustrative, not calibrated to proprietary data. See [Assumptions](#parameters-and-assumptions) and [Limitations](#limitations).
+> **Note on scope.** A learning / portfolio project built to demonstrate the conceptual engine behind production catastrophe models (RMS, Verisk Touchstone, CoreLogic). The *method* follow the conceptual structure of a vendor-model pipeline — exposure, hazard, vulnerability, financial, and reinsurance — not just aggregate loss simulation. The *input parameters* are illustrative, not calibrated to proprietary data. See [Assumptions](#parameters-and-assumptions) and [Limitations](#limitations).
 
 ---
 
@@ -24,7 +24,7 @@ The model builds a book of 1,000 insured locations, simulates 100,000 years of s
 
 ## Headline results
 
-A synthetic but realistic book: **1,000 coastal locations, USD 500M total insured value (TIV)**, over 100,000 simulated years.
+A synthetic but plausible book: **1,000 coastal locations, USD 500M total insured value (TIV)**, over 100,000 simulated years.
 
 | Metric (USD M) | AEP Gross | AEP Net | OEP Gross | OEP Net |
 |---|---:|---:|---:|---:|
@@ -235,4 +235,4 @@ hurricane-cat-model/
 
 ---
 
-*Built by [Your Name] - [contact / LinkedIn]. A learning project demonstrating end-to-end catastrophe-model construction; not for production pricing or risk-transfer decisions.*
+*Built by Emiliano Gaston Lopez - www.linkedin.com/in/emiliano-gastón-lópez-b278753a1 - A learning project demonstrating end-to-end catastrophe-model construction; not for production pricing or risk-transfer decisions.*
