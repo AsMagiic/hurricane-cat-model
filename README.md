@@ -1,165 +1,198 @@
-# Hurricane Catastrophe Model — Florida Homeowners Portfolio
+# Florida Hurricane Catastrophe Model
 
-A compound-Poisson Monte Carlo catastrophe model that prices the tail risk of a
-residential hurricane portfolio. The model simulates 100,000 years of possible
-loss experience, builds the Aggregate (AEP) and Occurrence (OEP) Exceedance
-Probability curves, and reads the Probable Maximum Loss (PML) at the 1-in-100 and
-1-in-250 year return periods.
+**A location-level, stochastic Monte Carlo catastrophe model for a Florida coastal homeowners portfolio — from hazard simulation through vulnerability, financial terms, and a multi-layer reinsurance programme.**
 
-> **Note on scope.** This is a learning/portfolio project built to demonstrate the
-> conceptual engine behind production catastrophe models (RMS, Verisk Touchstone).
-> The *method* mirrors industry practice; the *input parameters* are illustrative,
-> not calibrated to real data. See [Assumptions](#assumptions).
+Built on a compound-Poisson framework and run over **100,000 simulated years**, the model produces full exceedance-probability (EP) curves and prices the impact of an excess-of-loss (XoL) reinsurance tower on the portfolio's tail risk.
 
----
+\---
 
-## The problem
+## Headline results
 
-An insurer can comfortably pay for the *average* year. It is bankrupted by the
-*bad* year. For a hurricane book, average annual losses are modest, but there is a
-real chance of a single catastrophic season that costs an order of magnitude more.
-Pricing this risk — and deciding how much capital and reinsurance to hold — requires
-the full loss distribution, not just its mean. This model produces that distribution
-and extracts the tail metrics the industry actually uses.
+A synthetic but realistic book: **1,000 coastal locations, USD 500M total insured value (TIV)**.
 
-## Methodology
+|Metric (USD M)|AEP Gross|AEP Net|OEP Gross|OEP Net|
+|-|-:|-:|-:|-:|
+|Average Annual Loss|10.67|9.37|9.57|8.30|
+|PML 1-in-100|118.1|75.9|107.7|60.0|
+|PML 1-in-250|149.4|94.3|133.7|60.0|
 
-The model follows the standard **frequency–severity** decomposition used by every
-catastrophe model:
+*AEP = Aggregate Exceedance Probability (full annual loss). OEP = Occurrence Exceedance Probability (largest single event in the year). Gross = before reinsurance; Net = after the XoL programme.*
 
-- **Frequency** — the number of loss-causing events in a year is modeled as
-  `N ~ Poisson(λ)`.
-- **Severity** — given an event occurs, its loss to the portfolio is drawn from a
-  **Lognormal** distribution, chosen for its positive support and heavy right tail.
-- **Aggregate annual loss** — combining the two gives a **compound Poisson** process:
-  `S = X₁ + X₂ + … + X_N`, the total loss in a given year.
+**What the reinsurance tower buys:** the per-occurrence XoL programme cuts the 1-in-250 single-event loss by **55%** (from 133.7M to the 60M retention) and the 1-in-100 by **44%**. On an aggregate-annual basis the reduction is more modest (≈37%) — a direct, expected consequence of buying *per-occurrence* protection rather than aggregate stop-loss.
 
-The annual loss `S` is simulated for 100,000 years via Monte Carlo. The resulting
-sample of 100,000 annual losses *is* the loss distribution of the portfolio; the EP
-curves and PMLs are simply that distribution read at the appropriate ranks.
+\---
 
-- **AEP (Aggregate Exceedance Probability)** ranks the *total* annual loss `S`. It is
-  the relevant view for aggregate covers and capital adequacy.
-- **OEP (Occurrence Exceedance Probability)** ranks the *largest single event* of each
-  year. It is the relevant view for per-occurrence reinsurance (catastrophe XoL).
+## Why this model exists
 
-For a return period `T`, the PML is the loss whose annual exceedance probability is
-`1/T` — i.e. the loss at rank `k = M / T` once losses are sorted descending.
+A hurricane doesn't strike insured homes at random. It makes landfall on a stretch of coast and sweeps a coherent swath inland, so a single storm accumulates loss across many neighbouring policies at once. Pricing that concentration is the entire reason catastrophe models work at the **location level** rather than treating a portfolio as one aggregate number.
 
-## Parameters and assumptions
+This project rebuilds a Florida hurricane book from individual exposures up: each of the 1,000 locations has its own coordinates, value, construction type, and policy terms, and each simulated storm produces a wind footprint that those locations experience together. The output is a defensible view of the loss distribution — the kind of curve a primary insurer uses to decide how much reinsurance to buy, and a reinsurer uses to price it.
 
-| Parameter | Value | Notes |
-|---|---|---|
-| Peril / region | Atlantic hurricane, Florida coastal homeowners | Canonical cat peril |
-| Total insured value (TIV) | USD 500,000,000 | Sanity ceiling for losses |
-| Frequency | `N ~ Poisson(λ = 0.7)` | ≈ 1 material event every 1.4 years |
-| Severity | `Lognormal`, mean = USD 15M, CV = 1.5 | Heavy-tailed per-event loss |
-| Severity log-parameters | `μ = 15.9342`, `σ = 1.0857` | Derived from mean and CV (see below) |
-| Simulation | 100,000 years, `seed = 42` | Reproducible |
+> This is \*\*version 2\*\*. Version 1 modelled the same portfolio at the aggregate level with a single lognormal severity distribution. v2 replaces that with a spatial, peril-driven engine — and, reassuringly, the two arrive at nearly the same Average Annual Loss (10.7M vs 10.5M) by completely independent paths. That cross-check is one of the model's strongest validation anchors.
 
-The Lognormal is parameterized from an arithmetic mean and coefficient of variation,
-converted to log-space parameters:
+\---
 
-```
-σ = sqrt( ln(1 + CV²) )            = sqrt(ln(3.25))         ≈ 1.0857
-μ = ln(mean) − σ²/2                = ln(15e6) − 0.5894      ≈ 15.9342
-```
+## How it works — the six-step pipeline
 
-The `−σ²/2` correction is essential: it offsets the upward pull of the tail so the
-arithmetic mean lands exactly on USD 15M. Omitting it (passing `ln(mean)` as `μ`)
-silently inflates the mean by orders of magnitude — a classic modeling error caught
-by the AAL validation below.
+Each step is an independent, validated module. Run them in order (or all at once via `run\_all.py`).
 
-> **Assumptions are illustrative.** `λ`, the severity mean, the CV and the TIV are
-> chosen to be plausible and to make the dynamics visible — they are not estimated
-> from data. In production, frequency comes from a stochastic event catalog (e.g.
-> built on NOAA HURDAT2) rather than a single `λ`, and severity comes from
-> engineering-based vulnerability functions. The historical record is too short to
-> observe the deep tail directly, which is precisely why stochastic catalogs exist.
+### 1 · Exposure — *the book of business*
 
-## Results
+`data/generate\_exposure.py` → `data/exposure.csv`
 
-| Metric | Value |
-|---|---|
-| Average Annual Loss (AAL) | USD 10.49M (theoretical `λ·E[X]` = 10.50M) |
-| AEP PML, 1-in-100 | USD 100.6M |
-| AEP PML, 1-in-250 | USD 142.0M |
-| OEP PML, 1-in-100 | USD 88.0M |
-| OEP PML, 1-in-250 | USD 128.0M |
+1,000 synthetic coastal homeowner locations across eight hurricane-exposed Florida counties, weighted toward the South-East metro (Miami-Dade, Broward, Palm Beach) where real exposure concentrates. Each location carries TIV (lognormal, scaled so the book sums to exactly **USD 500M**), construction class, occupancy, and Florida-style hurricane deductibles (2% / 5% / 10% of TIV).
 
-The headline story is the gap between the AAL (≈ USD 10.5M) and the 1-in-250 PML
-(≈ USD 142M). A year that bad costs more than 13× the average year and ≈ 28% of TIV
-— this is the heavy tail made concrete, and it is the entire reason reinsurance and
-risk capital exist.
+*Validation:* TIV sums to 500M, unique IDs, no nulls, and a strict construction↔occupancy consistency check (every Mobile Home is Manufactured, and vice-versa).
 
-The OEP curve sits below the AEP curve everywhere (the largest single event cannot
-exceed the sum of all events) and the two converge into the tail, where catastrophic
-years are dominated by a single large hurricane and "the maximum" and "the sum"
-nearly coincide.
+### 2 · Hazard — *the storms*
 
-![AEP and OEP curves](outputs/ep_curves.png)
+`model/hazard.py` · `model/hazard\_diagnostics.py`
 
-## Validation
+A stochastic event generator with **moving tracks**. Storm frequency follows a Poisson process (λ = 0.7 storms/year); intensity is drawn from a Saffir-Simpson category distribution calibrated to the shape of Florida landfalls. Each storm makes landfall along a coastline polyline (Atlantic, Keys, Gulf), then propagates inland and weakens. A modified Rankine vortex wind field gives every location the **maximum sustained wind** it experienced during the storm's passage.
 
-The model is checked against three independent theoretical anchors, each targeting a
-different component:
+*Validation (10,000-storm diagnostics):* 35.8% of landfalls fall in the South-East corridor (matching the sampling weights); Broward and Palm Beach receive wind on par with Miami-Dade (no down-coast bias); **75.5% of storms strike two or more counties**, confirming the spatial correlation that justifies the location-level approach.
 
-1. **Frequency** — the simulated mean of `N` converges to `λ = 0.7`, within the
-   expected sampling error `√(λ/M) ≈ 0.0027`.
-2. **Severity / aggregation** — the simulated AAL converges to the closed-form
-   `λ · E[X] = USD 10.5M` (relative error 0.127%). This confirms both the Lognormal
-   parameter conversion and the compound-Poisson aggregation.
-3. **Zero-loss years** — the share of years with no loss matches `e^(−λ) ≈ 49.66%`
-   (simulated 49.53%). Equivalently, the AEP curve plateaus at
-   `P(S > 0) = 1 − e^(−λ) ≈ 50.3%`, confirming the event-count handling survived the
-   severity layer intact.
+### 3 · Vulnerability — *wind to damage*
 
-Three anchors hitting their targets simultaneously is strong evidence the model is
-assembled correctly — mirroring how an analyst cross-checks an output before trusting
-it, rather than relying on a single number.
+`model/vulnerability.py`
 
-## Limitations
+HAZUS-anchored damage functions that map wind to a damage ratio (0–1), **differentiated by construction type**. Curves operate in 3-second peak gust (HAZUS's native unit), with sustained wind converted via a 1.3 gust factor (open-terrain, Exposure C). Damage caps reflect real structural behaviour — Manufactured homes reach total loss, while Reinforced Concrete saturates near 0.75 even in extreme wind.
 
-- **Deep-tail noise.** Return periods beyond ≈ 1-in-2,000 rest on very few simulated
-  years (the 1-in-10,000 point uses ~10 of 100,000 years) and become visibly noisy.
-  Estimates in that region exist but should not be read with precision.
-- **Portfolio-aggregate resolution.** Losses are modeled directly at portfolio level
-  rather than location-by-location with vulnerability functions and hazard footprints,
-  as production vendor models do.
-- **Single peril, no correlation structure** beyond what the frequency model implies;
-  no secondary uncertainty, demand surge, or financial-structure (deductibles, limits)
-  modeling.
+*Validation:* curves are monotonic, bounded by their caps, and the fragility hierarchy (Manufactured > Wood Frame > Masonry > Reinforced Concrete) holds at every wind speed.
 
-## Repository structure
+### 4 · Loss integration — *the three-level hierarchy*
+
+`model/loss.py`
+
+The full 100,000-year catalogue (69,483 events), vectorised over locations. For every location in every event:
 
 ```
-hurricane-cat-model/
-├── README.md
-├── model/
-│   ├── sanity_check.py     # Poisson frequency validation
-│   ├── aggregate_loss.py   # compound-Poisson annual loss S
-│   └── ep_curve.py         # AEP/OEP curves, PMLs, plots
-└── outputs/
-    └── ep_curves.png
+ground\_up = damage\_ratio(gust, construction) × TIV
+gross     = clip(ground\_up − deductible, 0, policy\_limit)
 ```
 
-## How to run
+Deductibles apply **per occurrence** — each hurricane re-triggers them — and policy terms are applied per-location *before* aggregating.
 
-```bash
-pip install numpy pandas matplotlib
-python model/ep_curve.py
-```
+*Results:* AAL ground-up **15.1M** (3.02% of TIV); AAL gross **10.7M** (2.13%); deductibles absorb **29.5%** of ground-up loss; **51.0%** of years are loss-free (≥ the e<sup>−λ</sup> = 49.66% Poisson floor). The fragility signal comes through cleanly: Manufactured homes hold 8.7% of TIV but contribute **32.4%** of AAL (3.7×), while Reinforced Concrete holds 15.2% of TIV and just 3.5% of loss (0.2×).
 
-Outputs the AAL and four PMLs to the console and saves the EP-curve plot to
-`outputs/`. A fixed seed (`42`) makes all results reproducible.
+### 5 · Reinsurance — *the XoL tower*
 
-**Stack:** Python · NumPy · pandas · matplotlib
+`model/reinsurance.py` · `model/ep\_utils.py`
+
+A three-layer excess-of-loss programme applied per occurrence, completing the hierarchy with `net = gross − recovery`:
+
+|Layer|Structure|Covers per-event loss|Triggered in|
+|-|-|-|-:|
+|Working|40M xs 60M|60M – 100M|3.9% of years|
+|Middle|50M xs 100M|100M – 150M|1.3% of years|
+|Cat high|50M xs 150M|150M – 200M|0.2% of years|
+
+The contiguous tower provides 140M of capacity above a 60M retention. Expected annual reinsurance recovery is **1.29M/year** — the technical floor of the programme's premium.
+
+*Validation:* recovery is zero below the 60M attachment, capped at full capacity above 200M exhaustion, and net never exceeds gross. PML calculation lives in a single shared module (`ep\_utils.py`) so every figure in the project comes from one source of truth.
+
+### 6 · Outputs — *the story*
+
+`run\_all.py` · `model/summary.py` · `outputs/ep\_master.png`
+
+A one-command orchestrator reproduces the entire pipeline from scratch; `summary.py` produces the headline metrics table; and the master EP plot tells the risk-transfer story in a single figure.
+
+\---
+
+## Key visualizations
+
+|||
+|-|-|
+|`outputs/ep\_master.png`|**The headline.** AEP and OEP curves, gross vs net of reinsurance, with the recovery band and PML callouts.|
+|`outputs/ep\_gross\_vs\_net.png`|Per-occurrence EP curve showing the XoL tower flattening the tail at the 60M retention.|
+|`outputs/hazard\_footprint.png`|A single Cat-4 storm's wind field over the portfolio — a coherent regional strike, not scattered noise.|
+|`outputs/vulnerability\_curves.png`|The four construction-type damage curves with Saffir-Simpson thresholds.|
+|`outputs/landfall\_distribution.png`|10,000 sampled landfalls along the Florida coastline.|
+|`outputs/counties\_hit\_per\_event.png`|Multi-county accumulation per storm — the spatial-correlation evidence.|
+
+\---
+
+## Why you can trust the numbers — validation anchors
+
+Every step is checked against an independent reference, not just "does it run":
+
+* **AAL convergence:** v2's spatial engine lands within 2% of v1's aggregate lognormal — independent mechanisms, same answer.
+* **Poisson floor:** the share of loss-free years sits at or above e<sup>−λ</sup>, the analytic probability of zero storms.
+* **AEP ≥ OEP** at every return period (an annual aggregate must be at least its largest single event).
+* **Fragility hierarchy** reproduced from physics: the most vulnerable construction contributes loss far in excess of its share of value.
+* **Spatial correlation** confirmed empirically: most storms accumulate across multiple stacked counties.
+* **Reproducibility:** every result is seeded (`seed = 42`) and regenerable end-to-end with one command.
+
+\---
+
+## Methodology, assumptions \& limitations
+
+Built to mirror industry practice; **parameters are illustrative, not calibrated to proprietary data.** Stated plainly so results are read in context:
+
+* **Synthetic exposure.** The portfolio is generated, not sourced from real policy data.
+* **HAZUS-anchored, not exact.** Vulnerability curves reproduce the *behaviour* and hierarchy of HAZUS, not FEMA's exact coefficients.
+* **Single-terrain gust factor.** A constant 1.3 sustained-to-gust conversion (open terrain); marine or built-up exposure would differ.
+* **Simplified track physics.** A parametric vortex with generic inland decay; no asymmetry, forward-speed effects, or east/west-coast distinction.
+* **Wind only.** No storm surge, inland flood, or demand-surge sub-perils.
+* **XoL without reinstatements or co-participation.** The net loss is flat at the retention by design — a real programme would typically include both.
+
+These are deliberate scope choices for a transparent, auditable model — and each is a natural extension.
+
+\---
 
 ## Future extensions
 
-- Replace the single `λ` with a stochastic event catalog.
-- Model the tail with a Generalized Pareto Distribution (peaks-over-threshold) instead
-  of a single Lognormal.
-- Move from portfolio-aggregate to location-level exposure with vulnerability curves.
-- Reproduce the workflow in the open-source [Oasis LMF](https://oasislmf.org) framework.
-- Layer reinsurance structures (XoL, quota share) on top of the gross loss distribution.
+* A real stochastic event catalogue calibrated to NOAA HURDAT2.
+* Secondary perils (storm surge, inland flood) and correlated demand surge.
+* Reinstatements and co-participation in the reinsurance structure.
+* Sensitivity and uncertainty analysis around key parameters.
+* Climate-conditioned frequency/intensity scenarios.
+
+\---
+
+## Run it
+
+```bash
+# full pipeline from scratch (\~1 min)
+python run\_all.py
+
+# quick smoke run (1,000 years) to verify the pipeline end-to-end
+python run\_all.py --quick
+
+# or run any step on its own
+python data/generate\_exposure.py
+python model/hazard.py
+python model/vulnerability.py
+python model/loss.py
+python model/reinsurance.py
+python model/summary.py
+```
+
+**Stack:** Python · NumPy · pandas · Matplotlib. No external data dependencies — everything is generated and reproducible from seed.
+
+\---
+
+## Project structure
+
+```
+hurricane-cat-model/
+├── data/
+│   ├── generate\_exposure.py     # step 1 — synthetic FL exposure
+│   └── exposure.csv
+├── model/
+│   ├── hazard.py                # step 2 — stochastic moving-track storms
+│   ├── hazard\_diagnostics.py
+│   ├── vulnerability.py         # step 3 — HAZUS-anchored damage curves
+│   ├── loss.py                  # step 4 — ground-up / gross loss engine
+│   ├── reinsurance.py           # step 5 — multi-layer XoL tower
+│   ├── ep\_utils.py              # shared PML / EP-curve logic
+│   └── summary.py               # step 6 — headline metrics
+├── outputs/                     # plots
+├── run\_all.py                   # orchestrator
+└── results/                     # generated CSVs (gitignored, reproducible)
+```
+
+\---
+
+*Built by Emiliano Gaston Lopez · www.linkedin.com/in/emiliano-gastón-lópez-b278753a1 ·  A learning project demonstrating end-to-end catastrophe-model construction; not for production pricing or risk-transfer decisions.*
+
