@@ -297,26 +297,38 @@ def validate_and_report(events_df, annual_df,
 # Entry point
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
+    import argparse as _ap
+    _parser = _ap.ArgumentParser(description="Loss simulation (Step 4)")
+    _parser.add_argument(
+        "--quick", action="store_true",
+        help="Smoke run only (1,000 years); skip the 100k full simulation"
+    )
+    _args = _parser.parse_args()
 
-    # ---- Smoke test: 1,000 years ----------------------------------------
+    # ---- Smoke test: 1,000 years (always runs) ---------------------------
     print()
     print("=" * 64)
     print("SMOKE TEST  (N_YEARS = 1,000)")
     print("=" * 64)
     smoke = run_simulation(n_years=1_000, seed=SEED)
     validate_and_report(*smoke, n_years=1_000)
-    print("\nSmoke test passed.  Scaling to full simulation ...")
 
-    # ---- Full run: 100,000 years ----------------------------------------
-    print()
-    print("=" * 64)
-    print(f"FULL SIMULATION  (N_YEARS = {N_YEARS:,})")
-    print("=" * 64)
-    full = run_simulation(n_years=N_YEARS, seed=SEED)
-    validate_and_report(*full, n_years=N_YEARS)
+    if _args.quick:
+        print("\nSmoke test passed.  (--quick: skipping 100k full simulation)")
+        ev_df = smoke[0]
+        an_df = smoke[1]
+    else:
+        print("\nSmoke test passed.  Scaling to full simulation ...")
 
-    ev_df = full[0]
-    an_df = full[1]
+        # ---- Full run: 100,000 years -------------------------------------
+        print()
+        print("=" * 64)
+        print(f"FULL SIMULATION  (N_YEARS = {N_YEARS:,})")
+        print("=" * 64)
+        full = run_simulation(n_years=N_YEARS, seed=SEED)
+        validate_and_report(*full, n_years=N_YEARS)
+        ev_df = full[0]
+        an_df = full[1]
 
     ev_path = os.path.join(RESULTS_DIR, "events.csv")
     an_path = os.path.join(RESULTS_DIR, "annual_losses.csv")
