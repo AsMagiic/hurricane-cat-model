@@ -16,10 +16,14 @@ import sys
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import scipy.stats
 
-_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_ROOT      = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_MODEL_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _ROOT)
+sys.path.insert(0, _MODEL_DIR)   # tech debt: remove when model/ becomes a package
 from model_config import load_model_cfg
+from units import kt_to_mph, mph_to_kt
 _mcfg = load_model_cfg()
 
 # ---------------------------------------------------------------------------
@@ -30,7 +34,16 @@ LAMBDA = _mcfg.frequency.lambda_rate   # Poisson rate (storms/year)
 
 # Saffir-Simpson category wind ranges (mph, sustained) and FL landfall weights.
 CAT_RANGES  = [tuple(r) for r in _mcfg.frequency.category_ranges]
-CAT_WEIGHTS = np.array(_mcfg.frequency.category_weights)
+CAT_WEIGHTS = np.array(_mcfg.frequency.category_weights)  # no longer used for sampling (Step 1.4b); kept for validation reference
+
+# Intensity distribution parameters — truncated lognormal fitted to HURDAT2 FL landfalls.
+_icfg          = _mcfg.intensity
+_INT_LOC       = float(_icfg.loc)           # 64.0 kt — HU definitional threshold
+_INT_MU_LOG    = float(_icfg.mu_log)        # 4.4362 log_kt
+_INT_SIGMA_LOG = float(_icfg.sigma_log)     # 0.2518 dimensionless
+_INT_P_LB = float(scipy.stats.norm.cdf(
+    (np.log(_INT_LOC) - _INT_MU_LOG) / _INT_SIGMA_LOG
+))  # P(X < 64 kt) under parent lognormal; precomputed for inverse-CDF sampler
 
 # Florida coastline polyline for landfall sampling.
 # Ordered: Atlantic N->S, Keys, Gulf S->N.  Shape (12, 2): each row is [lat, lon].
@@ -76,13 +89,33 @@ def sample_landfall(rng):
 # ---------------------------------------------------------------------------
 # Intensity sampling
 # ---------------------------------------------------------------------------
+_CAT_LO_MPH = [float(lo) for lo, _ in CAT_RANGES]
+# [74.0, 96.0, 111.0, 130.0, 157.0] — Saffir-Simpson lower bounds in mph (sustained)
+
+
+def _vmax_to_category(vmax_mph: float) -> int:
+    """Saffir-Simpson category (1-5) from continuous Vmax (mph, sustained)."""
+    for cat in range(4, 0, -1):
+        if vmax_mph >= _CAT_LO_MPH[cat]:
+            return cat + 1
+    return 1
+
+
 def sample_intensity(rng):
     """
-    Return (category: int 1-5, vmax: float mph) from the FL landfall distribution.
+    Sample (category: int 1-5, vmax: float mph) from the fitted truncated lognormal.
+
+    Vmax drawn in kt via inverse-CDF: U ~ Uniform(0,1),
+    p = _INT_P_LB + U*(1-_INT_P_LB), Vmax_kt = exp(mu_log + sigma_log * Phi_inv(p)).
+    Converted to mph via kt_to_mph. Category derived from Vmax using Saffir-Simpson
+    bounds in _CAT_LO_MPH; Vmax is the source of truth, category is a derived label.
+    Units: output vmax in mph (sustained 1-minute).
     """
-    idx    = int(rng.choice(len(CAT_RANGES), p=CAT_WEIGHTS))
-    lo, hi = CAT_RANGES[idx]
-    return idx + 1, float(rng.uniform(lo, hi))
+    u        = float(rng.uniform(0.0, 1.0))
+    p_samp   = _INT_P_LB + u * (1.0 - _INT_P_LB)
+    vmax_kt  = float(np.exp(_INT_MU_LOG + _INT_SIGMA_LOG * float(scipy.stats.norm.ppf(p_samp))))
+    vmax_mph = float(kt_to_mph(vmax_kt))
+    return _vmax_to_category(vmax_mph), vmax_mph
 
 # ---------------------------------------------------------------------------
 # Track building
@@ -288,15 +321,21 @@ if __name__ == "__main__":
 
     mean_n        = float(np.mean(counts))
     cat3plus_frac = cat3plus / total if total > 0 else 0.0
-    theoretical_cat3plus = float(np.sum(CAT_WEIGHTS[2:]))
+
+    # Theoretical Cat3+ from fitted truncated lognormal: P(Vmax >= 111 mph | Vmax >= 64 kt)
+    _cat3_lb_kt = float(mph_to_kt(_CAT_LO_MPH[2]))   # 111 mph -> kt
+    _z_cat3     = (np.log(_cat3_lb_kt) - _INT_MU_LOG) / _INT_SIGMA_LOG
+    theoretical_cat3plus = float(
+        (1.0 - scipy.stats.norm.cdf(_z_cat3)) / (1.0 - _INT_P_LB)
+    )
 
     assert abs(mean_n - LAMBDA) < 0.05, \
         f"Mean N/year {mean_n:.3f} too far from lambda={LAMBDA}"
     print(f"[OK] Mean storms/year : {mean_n:.3f}  (target {LAMBDA})")
 
     assert abs(cat3plus_frac - theoretical_cat3plus) < 0.03, \
-        f"Cat3+ share {cat3plus_frac:.3f} too far from {theoretical_cat3plus}"
-    print(f"[OK] Cat3+ share      : {cat3plus_frac:.3f}  (target {theoretical_cat3plus:.2f})")
+        f"Cat3+ share {cat3plus_frac:.3f} too far from {theoretical_cat3plus:.3f}"
+    print(f"[OK] Cat3+ share      : {cat3plus_frac:.3f}  (theoretical {theoretical_cat3plus:.3f})")
 
     # --- c) Spatial coherence: high-wind locations form a tight cluster ---
     # The 90th-percentile wind locations should lie much closer together than
