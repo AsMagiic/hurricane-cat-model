@@ -8,7 +8,7 @@ Model
 where TNA and AMO are standardized (zero mean, unit variance) over the fit
 period. lambda_current is evaluated at the mean climate of the last
 `current_climate_years` years and written to config/model_v3.yaml as
-lambda_hu_fl, replacing the Step 1.3 MLE value.
+lambda_rate, replacing the Step 1.3 MLE value.
 
 Data sources (downloaded at runtime)
 -------------------------------------
@@ -166,45 +166,33 @@ def _parse_psl_file(url: str, label: str) -> pd.Series:
 # GLM config write — targeted text insertion, preserves comments
 # ---------------------------------------------------------------------------
 
-def _write_lambda_hu_fl(path: str, value: float, source: str) -> None:
+def _write_lambda_rate(path: str, value: float, source: str) -> None:
     """
-    Replace the lambda_hu_fl leaf in config/model_v3.yaml as plain text.
+    Replace the lambda_rate leaf in config/model_v3.yaml as plain text.
     Preserves all existing comments and formatting.
     """
     with open(path, encoding="utf-8") as f:
         lines = f.readlines()
 
     block = (
-        f"  lambda_hu_fl:\n"
+        f"  lambda_rate:\n"
         f"    value: {round(value, 4)}\n"
         f'    units: "events/year"\n'
         f'    source: "{source}"\n'
     )
 
-    # Replace existing block.
+    # lambda_rate is a mandatory key — find and replace it.
     for i, line in enumerate(lines):
-        if line.rstrip().startswith("  lambda_hu_fl:"):
+        if line.rstrip().startswith("  lambda_rate:"):
             j = i + 1
             while j < len(lines) and lines[j].startswith("    "):
                 j += 1
             lines[i:j] = [block]
             break
     else:
-        # Insert after lambda_rate source line (first-run fallback).
-        insert_after = None
-        in_lambda_rate = False
-        for i, line in enumerate(lines):
-            if line.rstrip() == "  lambda_rate:":
-                in_lambda_rate = True
-            if in_lambda_rate and line.strip().startswith("source:"):
-                insert_after = i
-                in_lambda_rate = False
-                break
-        if insert_after is None:
-            raise RuntimeError(
-                "_write_lambda_hu_fl: cannot find anchor in " + path
-            )
-        lines.insert(insert_after + 1, block)
+        raise RuntimeError(
+            "_write_lambda_rate: cannot find 'lambda_rate:' key in " + path
+        )
 
     with open(path, "w", encoding="utf-8") as f:
         f.writelines(lines)
@@ -288,7 +276,7 @@ if __name__ == "__main__":
     )
     ap.add_argument(
         "--dry-run", action="store_true",
-        help="Print results but do NOT write lambda_hu_fl to config/model_v3.yaml.",
+        help="Print results but do NOT write lambda_rate to config/model_v3.yaml.",
     )
     args = ap.parse_args()
     dry_run = args.dry_run
@@ -492,12 +480,12 @@ if __name__ == "__main__":
         print(f"\n  Source string to be written:")
         print(f"    {source}")
         if dry_run:
-            print(f"\n  DRY RUN — lambda_hu_fl = {lambda_current:.4f} "
+            print(f"\n  DRY RUN — lambda_rate = {lambda_current:.4f} "
                   "NOT written to config/model_v3.yaml "
                   "(re-run without --dry-run to persist).")
         else:
-            _write_lambda_hu_fl(_MODEL_CFG, lambda_current, source)
-            print(f"\n  lambda_hu_fl = {lambda_current:.4f} written to "
+            _write_lambda_rate(_MODEL_CFG, lambda_current, source)
+            print(f"\n  lambda_rate = {lambda_current:.4f} written to "
                   "config/model_v3.yaml")
     else:
         print("\n  config/model_v3.yaml not modified.")

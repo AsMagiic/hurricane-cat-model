@@ -210,7 +210,7 @@ def simulate_year(rng):
     """
     Simulate one year; return list of (track, metadata) tuples.
 
-    The number of events is drawn from Poisson(LAMBDA = 0.7).
+    The number of events is drawn from Poisson(LAMBDA); LAMBDA loaded from config.
     """
     n_storms = int(rng.poisson(LAMBDA))
     return [sample_storm(rng) for _ in range(n_storms)]

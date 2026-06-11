@@ -10,8 +10,9 @@ Methodology
 3. MLE: lambda_hat = mean(annual counts).
 4. Gamma conjugate posterior: Gamma(1,1) prior + Poisson likelihood.
 5. Chi-squared goodness-of-fit vs Poisson(lambda_hat) — satellite era.
-6. Write satellite-era lambda_hat to config/model_v3.yaml (targeted text
-   insertion — preserves all existing comments and formatting).
+6. Write satellite-era lambda_hat to frequency.lambda_mle_benchmark in
+   config/model_v3.yaml — documentary benchmark only, NOT the production
+   rate (targeted text insertion; idempotent).
 7. Save two-panel figure to outputs/frequency_calibration.png.
 """
 
@@ -33,11 +34,10 @@ _FIG       = os.path.join(_ROOT, _ccfg.frequency_calibration.figure_path)
 _MODEL_CFG = os.path.join(_ROOT, "config", "model_v3.yaml")
 
 _SOURCE_STR = (
-    "Poisson MLE, FL HU landfalls 1966-2024, HURDAT2; "
-    "satellite era chosen for record completeness. "
-    "Full record (1851-2024) estimate also reported in "
-    "calibration/frequency.py output. See Step 1.3b for "
-    "climate-conditioned extension."
+    "Poisson MLE, FL HU landfalls 1966-2024 (satellite era), HURDAT2. "
+    "Documentary benchmark only -- NOT consumed by model/hazard.py. "
+    "Production rate is frequency.lambda_rate (GLM current-climate). "
+    "See calibration/frequency_glm.py."
 )
 
 
@@ -151,33 +151,39 @@ def chi_squared_gof(counts: np.ndarray, lambda_hat: float):
 # Config write — targeted text insertion, preserves comments
 # ---------------------------------------------------------------------------
 
-def write_lambda_hu_fl(path: str, value: float) -> None:
+def write_lambda_mle_benchmark(path: str, value: float) -> None:
     """
-    Insert or replace the lambda_hu_fl leaf in config/model_v3.yaml.
+    Insert or replace the lambda_mle_benchmark leaf in config/model_v3.yaml.
 
     Uses plain-text line insertion rather than yaml.safe_load + yaml.dump
     so that all existing comments and formatting are preserved.
+    First run: inserts the key (with a benchmark-only comment) after lambda_rate.
+    Subsequent runs: replaces only the value/units/source lines — idempotent.
     """
     with open(path, encoding="utf-8") as f:
         lines = f.readlines()
 
     block = (
-        f"  lambda_hu_fl:\n"
+        f"  lambda_mle_benchmark:\n"
         f"    value: {round(value, 4)}\n"
         f'    units: "events/year"\n'
         f'    source: "{_SOURCE_STR}"\n'
     )
 
-    # Case 1: lambda_hu_fl already present — replace it.
+    # Case 1: lambda_mle_benchmark already present — replace it.
     for i, line in enumerate(lines):
-        if line.rstrip().startswith("  lambda_hu_fl:"):
+        if line.rstrip().startswith("  lambda_mle_benchmark:"):
             j = i + 1
             while j < len(lines) and lines[j].startswith("    "):
                 j += 1
             lines[i:j] = [block]
             break
     else:
-        # Case 2: first run — insert after the lambda_rate source line.
+        # Case 2: first run — insert (with comment) after the lambda_rate source line.
+        block_with_comment = (
+            "  # Satellite-era Poisson MLE -- documentary benchmark, not consumed by the model.\n"
+            + block
+        )
         insert_after = None
         in_lambda_rate = False
         for i, line in enumerate(lines):
@@ -189,10 +195,10 @@ def write_lambda_hu_fl(path: str, value: float) -> None:
                 break
         if insert_after is None:
             raise RuntimeError(
-                "write_lambda_hu_fl: cannot find 'lambda_rate:' block in "
+                "write_lambda_mle_benchmark: cannot find 'lambda_rate:' anchor in "
                 + path
             )
-        lines.insert(insert_after + 1, block)
+        lines.insert(insert_after + 1, block_with_comment)
 
     with open(path, "w", encoding="utf-8") as f:
         f.writelines(lines)
@@ -308,8 +314,8 @@ if __name__ == "__main__":
               f"({n_bins} bins after tail merge)")
     print()
 
-    write_lambda_hu_fl(_MODEL_CFG, lambda_sat)
-    print(f"lambda_hu_fl = {lambda_sat:.4f} written to config/model_v3.yaml")
+    write_lambda_mle_benchmark(_MODEL_CFG, lambda_sat)
+    print(f"lambda_mle_benchmark = {lambda_sat:.4f} written to config/model_v3.yaml")
 
     _make_plot(SAT_START, SAT_END, sat_counts, lambda_sat,
                chi_obs, chi_exp, last_k, tail_merged, p_val, _FIG)

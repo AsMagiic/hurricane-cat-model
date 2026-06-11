@@ -15,13 +15,14 @@ simulation:
 
 frequency:
   lambda_rate:
-    value: 0.7
-    units: "storms_per_year"
-    source: "illustrative (v2)"
-  lambda_hu_fl:
     value: 0.6576
     units: "events/year"
     source: "Poisson GLM (log link), single covariate: standardized AMO (TNA dropped due to collinearity r=0.892, dAIC=1.99 favoring reduced model), 1966-2022 satellite era; current-climate value = exp(b0 + b_amo*AMO_curr) evaluated at 2013-2022 mean climate. HURDAT2 + NOAA PSL AMO unsmoothed. See calibration/frequency_glm.py."
+  # Satellite-era Poisson MLE -- documentary benchmark, not consumed by the model.
+  lambda_mle_benchmark:
+    value: 0.4746
+    units: "events/year"
+    source: "Poisson MLE, FL HU landfalls 1966-2024 (satellite era), HURDAT2. Documentary benchmark only -- NOT consumed by model/hazard.py. Production rate is frequency.lambda_rate (GLM current-climate). See calibration/frequency_glm.py."
   # Saffir-Simpson sustained wind ranges (mph, 1-minute average) for Cat 1-5.
   category_ranges:
     value: [[74, 95], [96, 110], [111, 129], [130, 156], [157, 185]]
