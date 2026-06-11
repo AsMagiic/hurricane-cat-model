@@ -18,6 +18,10 @@ frequency:
     value: 0.7
     units: "storms_per_year"
     source: "illustrative (v2)"
+  lambda_hu_fl:
+    value: 0.4407
+    units: "events/year"
+    source: "Poisson MLE, FL HU landfalls 1966-2024, HURDAT2; satellite era chosen for record completeness. Full record (1851-2024) estimate also reported in calibration/frequency.py output. See Step 1.3b for climate-conditioned extension."
   # Saffir-Simpson sustained wind ranges (mph, 1-minute average) for Cat 1-5.
   category_ranges:
     value: [[74, 95], [96, 110], [111, 129], [130, 156], [157, 185]]
