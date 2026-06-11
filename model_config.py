@@ -1,8 +1,9 @@
 """
 Config loader for the Florida hurricane cat model.
 
-Reads config/exposure.yaml  -> load_exposure_cfg()
-Reads config/model_v3.yaml  -> load_model_cfg()
+Reads config/exposure.yaml     -> load_exposure_cfg()
+Reads config/model_v3.yaml    -> load_model_cfg()
+Reads config/calibration.yaml -> load_calibration_cfg()
 
 Every leaf entry {value, units, source} is validated at load time; the raw
 value is returned so callers see plain Python scalars/lists, not wrappers.
@@ -164,3 +165,8 @@ def load_exposure_cfg():
 def load_model_cfg():
     """Load and validate config/model_v3.yaml.  Returns _NS."""
     return _load(os.path.join(_CFG_DIR, "model_v3.yaml"))
+
+
+def load_calibration_cfg():
+    """Load and validate config/calibration.yaml.  Returns _NS."""
+    return _load(os.path.join(_CFG_DIR, "calibration.yaml"))
