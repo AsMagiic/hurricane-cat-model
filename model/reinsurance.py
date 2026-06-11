@@ -31,20 +31,16 @@ Outputs:
 """
 
 import os
-import sys
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 
-_DIR  = os.path.dirname(os.path.abspath(__file__))
-_ROOT = os.path.dirname(_DIR)
-sys.path.insert(0, _DIR)
-sys.path.insert(0, _ROOT)
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 from model_config import load_model_cfg
 _mcfg = load_model_cfg()
 
-from ep_utils import oep_pml, ep_curve, pml_rank_diagnostic
+from model.ep_utils import oep_pml, ep_curve, pml_rank_diagnostic
 
 RESULTS_DIR = os.path.join(_ROOT, "results")
 OUT_DIR     = os.path.join(_ROOT, "outputs")

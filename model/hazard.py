@@ -12,18 +12,13 @@ Key simplifications (documented; appropriate for a portfolio cat model demo):
 """
 
 import os
-import sys
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import scipy.stats
 
-_ROOT      = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_MODEL_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, _ROOT)
-sys.path.insert(0, _MODEL_DIR)   # tech debt: remove when model/ becomes a package
 from model_config import load_model_cfg
-from units import kt_to_mph, mph_to_kt
+from model.units import kt_to_mph, mph_to_kt
 _mcfg = load_model_cfg()
 
 # ---------------------------------------------------------------------------

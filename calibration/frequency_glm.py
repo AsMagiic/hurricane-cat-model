@@ -33,7 +33,6 @@ The AIC comparison is printed to stdout before any config write.
 
 import argparse
 import os
-import sys
 import urllib.request
 
 import matplotlib.pyplot as plt
@@ -43,7 +42,6 @@ import statsmodels.api as sm
 from scipy.stats import pearsonr
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, _ROOT)
 from model_config import load_calibration_cfg
 
 _ccfg      = load_calibration_cfg()

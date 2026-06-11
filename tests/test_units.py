@@ -2,15 +2,10 @@
 Round-trip and known-value tests for model/units.py.
 """
 
-import os
-import sys
-
 import numpy as np
 import pytest
 
-# model/ has no __init__.py; add it to sys.path for direct module import.
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "model"))
-from units import kt_to_mph, kt_to_ms, ms_to_kt, mph_to_kt
+from model.units import kt_to_mph, kt_to_ms, ms_to_kt, mph_to_kt
 
 _ROUNDTRIP_TOL = 1e-9
 _KNOWN_MPH_TOL = 0.1    # per spec: 64 kt ≈ 73.6 mph, tolerance 0.1 mph

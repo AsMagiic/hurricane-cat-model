@@ -61,28 +61,28 @@ def main():
 
     py = sys.executable
 
-    loss_cmd = [py, os.path.join("model", "loss.py")]
+    loss_cmd = [py, "-m", "model.loss"]
     if args.quick:
         loss_cmd.append("--quick")
 
     steps = [
         ("Step 1 | Exposure generation   (data/generate_exposure.py)",
-         [py, os.path.join("data", "generate_exposure.py")]),
+         [py, "-m", "data.generate_exposure"]),
 
         ("Step 2 | Hazard module          (model/hazard.py -- demo + asserts)",
-         [py, os.path.join("model", "hazard.py")]),
+         [py, "-m", "model.hazard"]),
 
         ("Step 3 | Vulnerability module   (model/vulnerability.py -- demo + asserts)",
-         [py, os.path.join("model", "vulnerability.py")]),
+         [py, "-m", "model.vulnerability"]),
 
         ("Step 4 | Loss simulation        (model/loss.py)",
          loss_cmd),
 
         ("Step 5 | Reinsurance            (model/reinsurance.py)",
-         [py, os.path.join("model", "reinsurance.py")]),
+         [py, "-m", "model.reinsurance"]),
 
         ("Step 6 | Summary + master plot  (model/summary.py)",
-         [py, os.path.join("model", "summary.py")]),
+         [py, "-m", "model.summary"]),
     ]
 
     t_start = time.perf_counter()

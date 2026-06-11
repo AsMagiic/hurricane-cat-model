@@ -25,17 +25,14 @@ Outputs
 """
 
 import os
-import sys
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 
-_DIR  = os.path.dirname(os.path.abspath(__file__))
-_ROOT = os.path.dirname(_DIR)
-sys.path.insert(0, _DIR)
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-from ep_utils import oep_pml, ep_curve
+from model.ep_utils import oep_pml, ep_curve
 
 RESULTS_DIR = os.path.join(_ROOT, "results")
 OUT_DIR     = os.path.join(_ROOT, "outputs")

@@ -35,7 +35,6 @@ status    str        HU (>=64 kt) / TS (34-63 kt) / TD (<34 kt)
 
 import math
 import os
-import sys
 import tempfile
 import urllib.request
 import zipfile
@@ -52,7 +51,6 @@ from shapely.ops import unary_union
 from shapely.prepared import prep
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, _ROOT)
 from model_config import load_calibration_cfg
 
 _ccfg = load_calibration_cfg()

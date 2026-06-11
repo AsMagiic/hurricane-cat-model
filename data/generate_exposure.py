@@ -7,12 +7,9 @@ is fully reproducible across machines and Python versions.
 """
 
 import os
-import sys
 import numpy as np
 import pandas as pd
 
-_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, _ROOT)
 from model_config import load_exposure_cfg
 _ecfg = load_exposure_cfg()
 

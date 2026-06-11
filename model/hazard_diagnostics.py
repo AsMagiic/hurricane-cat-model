@@ -9,16 +9,13 @@ Runs N_STORMS = 10,000 synthetic hurricanes and checks three properties:
   3. Multi-county accumulation per storm   (spatial correlation test)
 """
 
-import sys
 import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 
-# hazard.py lives in the same directory; add model/ to the path.
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from hazard import sample_storm, wind_at_locations, COAST_POINTS
+from model.hazard import sample_storm, wind_at_locations, COAST_POINTS
 
 # ---------------------------------------------------------------------------
 # Paths

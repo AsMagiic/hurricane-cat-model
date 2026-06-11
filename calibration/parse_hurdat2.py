@@ -21,13 +21,11 @@ Use model/units.py for any downstream conversion.
 """
 
 import os
-import sys
 
 import numpy as np
 import pandas as pd
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, _ROOT)
 from model_config import load_calibration_cfg
 
 _ccfg = load_calibration_cfg()
