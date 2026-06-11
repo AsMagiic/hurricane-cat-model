@@ -29,7 +29,8 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 from model_config import load_model_cfg
 _mcfg = load_model_cfg()
 
-from model.hazard        import simulate_year, wind_at_locations, LAMBDA
+from model.hazard        import simulate_year, LAMBDA
+from model.wind_field    import wind_at_locations, StormParams
 from model.vulnerability import GUST_FACTOR, GUST_THRESHOLD, CONSTRUCTION_PARAMS
 from model.ep_utils      import oep_pml, ep_curve, pml_rank_diagnostic
 
@@ -147,7 +148,7 @@ def run_simulation(n_years, seed=SEED):
         agg_gu = agg_gr = max_gr = 0.0
 
         for track, meta in year_events:
-            winds   = wind_at_locations(track, meta["rmax"], lats, lons)
+            winds   = wind_at_locations(track, StormParams(rmax=meta["rmax"]), lats, lons)
             gu, gr  = _event_loss(winds)
             port_gu = float(gu.sum())
             port_gr = float(gr.sum())

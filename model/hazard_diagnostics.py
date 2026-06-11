@@ -15,7 +15,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 
-from model.hazard import sample_storm, wind_at_locations, COAST_POINTS
+from model.hazard     import sample_storm, COAST_POINTS
+from model.wind_field import wind_at_locations, StormParams
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -56,7 +57,7 @@ for i in range(N_STORMS):
     if (i + 1) % 2_000 == 0:
         print(f"  {i + 1:,} / {N_STORMS:,}")
     track, meta   = sample_storm(rng)
-    all_winds[i]  = wind_at_locations(track, meta["rmax"], lats, lons)
+    all_winds[i]  = wind_at_locations(track, StormParams(rmax=meta["rmax"]), lats, lons)
     lf_lats[i]    = meta["landfall_lat"]
     lf_lons[i]    = meta["landfall_lon"]
     storm_cats[i] = meta["category"]

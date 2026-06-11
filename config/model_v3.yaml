@@ -91,6 +91,15 @@ hazard:
     value: 0.6
     units: "dimensionless"
     source: "illustrative (v2)"
+  # Radius of maximum winds uniform sampling bounds (constant along track, no eyewall contraction).
+  rmax_km_min:
+    value: 30.0
+    units: "km"
+    source: "illustrative (v2)"
+  rmax_km_max:
+    value: 55.0
+    units: "km"
+    source: "illustrative (v2)"
 
   landfall_geography:
     coastline_path:

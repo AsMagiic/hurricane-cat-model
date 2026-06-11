@@ -21,6 +21,8 @@ from pyproj import Transformer
 
 from model_config import load_model_cfg
 from model.units import kt_to_mph, mph_to_kt
+from model.geo_utils import haversine
+from model.wind_field import wind_at_locations, StormParams
 _mcfg = load_model_cfg()
 
 # ---------------------------------------------------------------------------
@@ -50,9 +52,11 @@ COAST_POINTS = np.array(_mcfg.hazard.coast_polyline)
 SEGMENT_WEIGHTS = np.array(_mcfg.hazard.coast_segment_weights)
 
 # Hazard mechanics
-_STEP_KM     = _mcfg.hazard.step_km
-_EFOLD_KM    = _mcfg.hazard.efold_km
-_OUTER_DECAY = _mcfg.hazard.outer_decay_exponent
+_STEP_KM      = _mcfg.hazard.step_km
+_EFOLD_KM     = _mcfg.hazard.efold_km
+_OUTER_DECAY  = _mcfg.hazard.outer_decay_exponent
+_RMAX_MIN_KM  = float(_mcfg.hazard.rmax_km_min)
+_RMAX_MAX_KM  = float(_mcfg.hazard.rmax_km_max)
 
 # ---------------------------------------------------------------------------
 # Calibrated landfall geography + regime parameters  (Step 1.5b)
@@ -105,19 +109,6 @@ for _rname, _rcfg_r in [("atlantic", _by_reg.atlantic), ("gulf", _by_reg.gulf)]:
         "speed_shape":      float(_sp[0]),
         "speed_scale":      float(_sp[2]),
     }
-
-# ---------------------------------------------------------------------------
-# Haversine distance
-# ---------------------------------------------------------------------------
-def haversine(lat1, lon1, lat2, lon2):
-    """Great-circle distance in km.  Inputs may be scalars or numpy arrays."""
-    R    = 6371.0
-    phi1 = np.radians(lat1)
-    phi2 = np.radians(lat2)
-    dphi = phi2 - phi1
-    dlam = np.radians(lon2 - lon1)
-    a    = np.sin(dphi / 2)**2 + np.cos(phi1) * np.cos(phi2) * np.sin(dlam / 2)**2
-    return 2 * R * np.arcsin(np.sqrt(np.clip(a, 0, 1)))
 
 # ---------------------------------------------------------------------------
 # Landfall sampling
@@ -190,7 +181,7 @@ def build_track(landfall_lat, landfall_lon, vmax, heading_deg, rng):
     track : ndarray (11, 4) — columns: [lat, lon, vmax_step, cum_dist_km]
               row 0 = landfall (peak intensity), rows 1-10 = inland steps
     """
-    rmax        = float(rng.uniform(30, 55))   # km, constant (no eyewall contraction)
+    rmax        = float(rng.uniform(_RMAX_MIN_KM, _RMAX_MAX_KM))   # km, constant (no eyewall contraction)
     heading_rad = np.radians(heading_deg)
 
     n_steps = 10
@@ -210,34 +201,6 @@ def build_track(landfall_lat, landfall_lon, vmax, heading_deg, rng):
         lon += dlon
 
     return rmax, np.array(rows)
-
-# ---------------------------------------------------------------------------
-# Wind field at portfolio locations
-# ---------------------------------------------------------------------------
-def wind_at_locations(track, rmax, lats, lons):
-    """
-    Maximum sustained wind (mph) at each location over all track steps.
-
-    Modified Rankine vortex:
-      d <= Rmax  ->  V = Vmax * (d / Rmax)        [increases toward eye wall]
-      d >  Rmax  ->  V = Vmax * (Rmax / d)^0.6    [outer-vortex power-law decay]
-    """
-    lats     = np.asarray(lats, dtype=float)
-    lons     = np.asarray(lons, dtype=float)
-    max_wind = np.zeros(len(lats))
-
-    for lat_c, lon_c, vmax_step, _ in track:
-        d = haversine(lat_c, lon_c, lats, lons)
-        # Guard against d=0 in the outer branch (np.where evaluates both branches).
-        safe_d = np.where(d > 0, d, 1e-10)
-        wind   = np.where(
-            d <= rmax,
-            vmax_step * (d / rmax),
-            vmax_step * (rmax / safe_d) ** _OUTER_DECAY,
-        )
-        np.maximum(max_wind, wind, out=max_wind)
-
-    return max_wind
 
 # ---------------------------------------------------------------------------
 # Single-storm sampler
@@ -310,7 +273,7 @@ if __name__ == "__main__":
     # -----------------------------------------------------------------------
     demo_rng              = np.random.default_rng(SEED)
     demo_track, demo_meta = sample_storm(demo_rng)
-    demo_wind             = wind_at_locations(demo_track, demo_meta["rmax"], lats, lons)
+    demo_wind             = wind_at_locations(demo_track, StormParams(rmax=demo_meta["rmax"]), lats, lons)
 
     print(f"\nDemo storm:  Cat{demo_meta['category']} | "
           f"Vmax={demo_meta['vmax_landfall']:.1f} mph | "
