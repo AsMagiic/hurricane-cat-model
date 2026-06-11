@@ -21,7 +21,7 @@ frequency:
   lambda_hu_fl:
     value: 0.6576
     units: "events/year"
-    source: "Poisson GLM (log link), covariates: standardized TNA SST + AMO, 1966-2022 satellite era; current-climate value = exp(b0 + b1*TNA_curr + b2*AMO_curr) evaluated at 2013-2022 mean climate. HURDAT2 + NOAA PSL TNA + AMO unsmoothed. See calibration/frequency_glm.py."
+    source: "Poisson GLM (log link), single covariate: standardized AMO (TNA dropped due to collinearity r=0.892, dAIC=1.99 favoring reduced model), 1966-2022 satellite era; current-climate value = exp(b0 + b_amo*AMO_curr) evaluated at 2013-2022 mean climate. HURDAT2 + NOAA PSL AMO unsmoothed. See calibration/frequency_glm.py."
   # Saffir-Simpson sustained wind ranges (mph, 1-minute average) for Cat 1-5.
   category_ranges:
     value: [[74, 95], [96, 110], [111, 129], [130, 156], [157, 185]]

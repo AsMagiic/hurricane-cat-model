@@ -57,11 +57,21 @@ _CW_YEARS  = int(_ccfg.frequency_glm.current_climate_years)
 SAT_START, SAT_END = 1966, 2024
 _MIN_MONTHS = 10   # min valid months required to compute an annual mean
 
-_GLM_SOURCE = (
+_GLM_SOURCE_FULL = (
     "Poisson GLM (log link), covariates: standardized TNA SST + AMO, "
     "{start}-{end} satellite era; current-climate value = "
     "exp(b0 + b1*TNA_curr + b2*AMO_curr) evaluated at {cw_start}-{cw_end} "
     "mean climate. HURDAT2 + NOAA PSL TNA + AMO unsmoothed. "
+    "See calibration/frequency_glm.py."
+)
+
+_GLM_SOURCE_AMO_ONLY = (
+    "Poisson GLM (log link), single covariate: standardized AMO "
+    "(TNA dropped due to collinearity r={r_val:.3f}, "
+    "dAIC={delta:.2f} favoring reduced model), "
+    "{start}-{end} satellite era; current-climate value = "
+    "exp(b0 + b_amo*AMO_curr) evaluated at {cw_start}-{cw_end} "
+    "mean climate. HURDAT2 + NOAA PSL AMO unsmoothed. "
     "See calibration/frequency_glm.py."
 )
 
@@ -388,6 +398,7 @@ if __name__ == "__main__":
     active_result  = result_full
     active_b0      = b0
     fitted         = result_full.fittedvalues.values
+    model_delta    = 0.0   # dAIC of the winning model; set below when |r| > 0.8
 
     if abs(r_tna_amo) > 0.8:
         print(f"\n  |r(TNA, AMO)| = {abs(r_tna_amo):.3f} > 0.8 "
@@ -407,7 +418,8 @@ if __name__ == "__main__":
         print(f"    Dev. expl.: {dev_expl_amo_only * 100:.1f}%")
 
         if aic_amo_only <= aic_full:
-            delta = aic_full - aic_amo_only
+            delta       = aic_full - aic_amo_only
+            model_delta = delta
             print(f"\n  -> AMO-only SELECTED  "
                   f"(dAIC = {delta:.2f} in favour of reduced model)")
             active_model  = (
@@ -421,7 +433,8 @@ if __name__ == "__main__":
             df.attrs["b1"] = 0.0
             df.attrs["b2"] = b2_amo_only
         else:
-            delta = aic_amo_only - aic_full
+            delta       = aic_amo_only - aic_full
+            model_delta = delta
             print(f"\n  -> Two-covariate SELECTED  "
                   f"(dAIC = {delta:.2f} in favour of full model)")
 
@@ -465,10 +478,19 @@ if __name__ == "__main__":
 
     # ---- Step 9: Write to config ----------------------------------------
     if signs_ok:
-        source = _GLM_SOURCE.format(
-            start=fit_start, end=fit_end,
-            cw_start=window_start, cw_end=window_end,
-        )
+        if active_model.startswith("AMO-only"):
+            source = _GLM_SOURCE_AMO_ONLY.format(
+                r_val=abs(r_tna_amo), delta=model_delta,
+                start=fit_start, end=fit_end,
+                cw_start=window_start, cw_end=window_end,
+            )
+        else:
+            source = _GLM_SOURCE_FULL.format(
+                start=fit_start, end=fit_end,
+                cw_start=window_start, cw_end=window_end,
+            )
+        print(f"\n  Source string to be written:")
+        print(f"    {source}")
         if dry_run:
             print(f"\n  DRY RUN — lambda_hu_fl = {lambda_current:.4f} "
                   "NOT written to config/model_v3.yaml "
