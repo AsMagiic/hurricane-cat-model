@@ -1,6 +1,6 @@
 metric,aep_gross_M,aep_net_M,oep_gross_M,oep_net_M
-AAL_M,10.665,9.373,9.572,8.296
-PML_1in100_M,118.1,75.87,107.65,60.0
-PML_1in250_M,149.42,94.27,133.71,60.0
-Reduction_1in100_pct,,35.8,,44.3
-Reduction_1in250_pct,,36.9,,55.1
+AAL_M,3.584,3.296,3.403,3.116
+PML_1in100_M,60.97,60.0,58.28,58.28
+PML_1in250_M,87.9,60.0,84.85,60.0
+Reduction_1in100_pct,,1.6,,0.0
+Reduction_1in250_pct,,31.7,,29.3

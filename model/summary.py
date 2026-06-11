@@ -128,16 +128,18 @@ def _validate(aal, pml):
     assert aal["oep_n"] <= aal["oep_g"] + 1e-4, "AAL OEP net > OEP gross"
     print("[OK] net <= gross for all metrics (AAL, PML 1-in-100, PML 1-in-250)")
 
-    # 3. OEP net reduction: confirm reinsurance is providing material protection.
-    #    Exact % depends on gross PML, which varies with N_YEARS (sampling noise at
-    #    short runs).  Full 100k run: ~44% at 1-in-100, ~55% at 1-in-250.
-    #    Bounds are set wide enough for the 1k-year smoke run (~35-40% at 1-in-100).
+    # 3. OEP net reduction: sanity-check that reinsurance doesn't produce impossible results.
+    #    Lower bound is 0%: after Step 1.5 calibration, the 1-in-100 gross PML (~58M) sits
+    #    below the 60M tower attachment, so 0% reduction is physically correct (no losses
+    #    reach Layer 1).  Tower attachments (60/100/150M) are illustrative v2 values and will
+    #    be re-anchored to OEP return periods in Phase 4 (Paso 4.1).
+    #    Upper bound flags implausible over-recovery (net < 30% of gross is a model error).
     r100 = (pml[(100, "oep_g")] - pml[(100, "oep_n")]) / pml[(100, "oep_g")] * 100
     r250 = (pml[(250, "oep_g")] - pml[(250, "oep_n")]) / pml[(250, "oep_g")] * 100
-    assert 25.0 <= r100 <= 65.0, \
-        f"OEP 1-in-100 reduction {r100:.1f}% outside plausible range 25-65%"
-    assert 35.0 <= r250 <= 70.0, \
-        f"OEP 1-in-250 reduction {r250:.1f}% outside plausible range 35-70%"
+    assert 0.0 <= r100 <= 70.0, \
+        f"OEP 1-in-100 reduction {r100:.1f}% outside plausible range 0-70%"
+    assert 0.0 <= r250 <= 75.0, \
+        f"OEP 1-in-250 reduction {r250:.1f}% outside plausible range 0-75%"
     print(f"[OK] OEP net reduction {r100:.1f}% (1-in-100) and {r250:.1f}% (1-in-250) "
           f"-- consistent with step 5")
 

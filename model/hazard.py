@@ -16,6 +16,8 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import scipy.stats
+from shapely.geometry import LineString
+from pyproj import Transformer
 
 from model_config import load_model_cfg
 from model.units import kt_to_mph, mph_to_kt
@@ -53,6 +55,58 @@ _EFOLD_KM    = _mcfg.hazard.efold_km
 _OUTER_DECAY = _mcfg.hazard.outer_decay_exponent
 
 # ---------------------------------------------------------------------------
+# Calibrated landfall geography + regime parameters  (Step 1.5b)
+# ---------------------------------------------------------------------------
+_ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+_geo_cfg         = _mcfg.hazard.landfall_geography
+_COAST_PATH      = os.path.join(_ROOT_DIR, _geo_cfg.coastline_path)
+_coast_df        = pd.read_csv(_COAST_PATH)
+
+_TO_3086         = Transformer.from_crs("EPSG:4326", "EPSG:3086", always_xy=True)
+_FROM_3086       = Transformer.from_crs("EPSG:3086", "EPSG:4326", always_xy=True)
+_COAST_LINE_3086 = LineString([
+    _TO_3086.transform(lon, lat)
+    for lon, lat in zip(_coast_df["lon"], _coast_df["lat"])
+])
+
+_TOTAL_ARC_KM = float(_geo_cfg.total_arc_length_km)
+_S_SAMPLES_KM = np.array(_geo_cfg.s_samples_km, dtype=float)
+# KDE bandwidth: factor * std(data), ddof=0 — matches scipy gaussian_kde convention
+_KDE_BW_KM    = float(_geo_cfg.kde_silverman_factor) * float(np.std(_S_SAMPLES_KM))
+
+
+def _kappa_from_R(R: float) -> float:
+    """
+    Approximate von Mises concentration κ from mean resultant length R.
+    Piecewise formula: Mardia & Jupp (2000), Statistics of Directional Data, p. 85.
+    Accurate to ~3% for 0 < R < 0.95.
+    """
+    if R < 0.53:
+        return 2.0 * R + R**3 + 5.0 * R**5 / 6.0
+    elif R < 0.85:
+        return -0.4 + 1.39 * R + 0.43 / (1.0 - R)
+    else:
+        return 1.0 / (R**3 - 4.0 * R**2 + 3.0 * R)
+
+
+_by_reg   = _mcfg.hazard.track_stats.by_regime
+_S_CUT_KM = float(_by_reg.s_cut_km)
+
+_REGIME_CFG: dict = {}
+for _rname, _rcfg_r in [("atlantic", _by_reg.atlantic), ("gulf", _by_reg.gulf)]:
+    _sp = list(_rcfg_r.speed_params)
+    assert _sp[1] == 0.0, (
+        f"loc != 0 for {_rname} speed gamma (got {_sp[1]}); revise sampler to add loc offset"
+    )
+    _REGIME_CFG[_rname] = {
+        "heading_mean_deg": float(_rcfg_r.heading_mean_deg),
+        "heading_kappa":    _kappa_from_R(float(_rcfg_r.heading_resultant_R)),
+        "speed_shape":      float(_sp[0]),
+        "speed_scale":      float(_sp[2]),
+    }
+
+# ---------------------------------------------------------------------------
 # Haversine distance
 # ---------------------------------------------------------------------------
 def haversine(lat1, lon1, lat2, lon2):
@@ -70,16 +124,21 @@ def haversine(lat1, lon1, lat2, lon2):
 # ---------------------------------------------------------------------------
 def sample_landfall(rng):
     """
-    Return (lat, lon) of a landfall point sampled along the FL coast polyline.
+    Return (lat, lon, s_km) of a landfall point sampled from the calibrated KDE
+    over HURDAT2 arc-length positions on the simplified FL coastline (EPSG:3086).
 
-    A segment is chosen with probability proportional to SEGMENT_WEIGHTS;
-    the point within that segment is drawn uniformly (linear interpolation).
+    s_km   : arc-length in EPSG:3086 km from the GA-FL Atlantic corner (s=0).
+    KDE    : Gaussian kernel with Silverman bandwidth _KDE_BW_KM.
+             Resampled by picking a random data point and adding Gaussian noise
+             (standard KDE resample algorithm); entirely within numpy for RNG
+             consistency — no scipy.stats.gaussian_kde.resample() call needed.
     """
-    p       = SEGMENT_WEIGHTS / SEGMENT_WEIGHTS.sum()
-    seg_idx = int(rng.choice(len(SEGMENT_WEIGHTS), p=p))
-    t       = float(rng.uniform(0, 1))
-    p0, p1  = COAST_POINTS[seg_idx], COAST_POINTS[seg_idx + 1]
-    return float(p0[0] + t * (p1[0] - p0[0])), float(p0[1] + t * (p1[1] - p0[1]))
+    idx  = int(rng.integers(0, len(_S_SAMPLES_KM)))
+    s_km = float(_S_SAMPLES_KM[idx]) + float(rng.normal(0.0, _KDE_BW_KM))
+    s_km = float(np.clip(s_km, 0.0, _TOTAL_ARC_KM))
+    pt   = _COAST_LINE_3086.interpolate(s_km * 1e3)   # EPSG:3086 unit is metres
+    lon, lat = _FROM_3086.transform(pt.x, pt.y)
+    return float(lat), float(lon), s_km
 
 # ---------------------------------------------------------------------------
 # Intensity sampling
@@ -115,9 +174,15 @@ def sample_intensity(rng):
 # ---------------------------------------------------------------------------
 # Track building
 # ---------------------------------------------------------------------------
-def build_track(landfall_lat, landfall_lon, vmax, rng):
+def build_track(landfall_lat, landfall_lon, vmax, heading_deg, rng):
     """
     Generate a 10-step inland track starting at the landfall point.
+
+    Parameters
+    ----------
+    heading_deg : float — meteorological bearing (degrees; 0=N, 90=E, 180=S, 270=W).
+                          Passed from sample_storm (regime-conditioned von Mises draw).
+                          Advance convention unchanged: heading=0 → dlat>0, dlon=0.
 
     Returns
     -------
@@ -126,7 +191,6 @@ def build_track(landfall_lat, landfall_lon, vmax, rng):
               row 0 = landfall (peak intensity), rows 1-10 = inland steps
     """
     rmax        = float(rng.uniform(30, 55))   # km, constant (no eyewall contraction)
-    heading_deg = float(rng.uniform(-45, 45))  # deviation from due north (simplification)
     heading_rad = np.radians(heading_deg)
 
     n_steps = 10
@@ -185,17 +249,34 @@ def sample_storm(rng):
     Returns
     -------
     track    : ndarray (11, 4) — [lat, lon, vmax_step, cum_dist_km]
-    metadata : dict   — category, vmax_landfall, rmax, landfall_lat, landfall_lon
+    metadata : dict   — category, vmax_landfall, rmax, landfall_lat, landfall_lon,
+                        regime, heading_deg, translation_speed_kmh
     """
-    lat_lf, lon_lf = sample_landfall(rng)
+    lat_lf, lon_lf, s_km = sample_landfall(rng)
+
+    regime = "atlantic" if s_km < _S_CUT_KM else "gulf"
+    rcfg   = _REGIME_CFG[regime]
+
+    # Von Mises heading — kappa derived from resultant R via Mardia & Jupp (2000).
+    # rng.vonmises(mu_rad, kappa) returns radians in [-π, π]; convert and wrap to [0, 360).
+    mu_rad      = np.radians(rcfg["heading_mean_deg"])
+    heading_deg = float(np.degrees(rng.vonmises(mu_rad, rcfg["heading_kappa"])) % 360.0)
+
+    # Gamma translation speed — rng.gamma(shape, scale); loc=0 asserted at import.
+    speed_kmh = float(rng.gamma(rcfg["speed_shape"], rcfg["speed_scale"]))
+
     category, vmax = sample_intensity(rng)
-    rmax, track    = build_track(lat_lf, lon_lf, vmax, rng)
+    rmax, track    = build_track(lat_lf, lon_lf, vmax, heading_deg, rng)
+
     return track, {
-        "category":      category,
-        "vmax_landfall": vmax,
-        "rmax":          rmax,
-        "landfall_lat":  lat_lf,
-        "landfall_lon":  lon_lf,
+        "category":              category,
+        "vmax_landfall":         vmax,
+        "rmax":                  rmax,
+        "landfall_lat":          lat_lf,
+        "landfall_lon":          lon_lf,
+        "regime":                regime,
+        "heading_deg":           heading_deg,
+        "translation_speed_kmh": speed_kmh,
     }
 
 # ---------------------------------------------------------------------------
@@ -215,9 +296,8 @@ def simulate_year(rng):
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
 
-    ROOT     = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    EXP_PATH = os.path.join(ROOT, "data",    "exposure.csv")
-    OUT_DIR  = os.path.join(ROOT, "outputs")
+    EXP_PATH = os.path.join(_ROOT_DIR, "data", "exposure.csv")
+    OUT_DIR  = os.path.join(_ROOT_DIR, "outputs")
 
     # Load portfolio locations
     exp  = pd.read_csv(EXP_PATH, usecols=["location_id", "lat", "lon"])
@@ -235,7 +315,9 @@ if __name__ == "__main__":
     print(f"\nDemo storm:  Cat{demo_meta['category']} | "
           f"Vmax={demo_meta['vmax_landfall']:.1f} mph | "
           f"Rmax={demo_meta['rmax']:.1f} km | "
-          f"landfall=({demo_meta['landfall_lat']:.3f}, {demo_meta['landfall_lon']:.3f})")
+          f"landfall=({demo_meta['landfall_lat']:.3f}, {demo_meta['landfall_lon']:.3f}) | "
+          f"regime={demo_meta['regime']} | heading={demo_meta['heading_deg']:.1f}° | "
+          f"speed={demo_meta['translation_speed_kmh']:.1f} km/h")
     print(f"Wind range at portfolio: {demo_wind.min():.1f} - {demo_wind.max():.1f} mph")
 
     fig, ax = plt.subplots(figsize=(8, 9))
@@ -253,9 +335,9 @@ if __name__ == "__main__":
     ax.plot(demo_meta["landfall_lon"], demo_meta["landfall_lat"],
             "r*", markersize=14, zorder=4, label="Landfall")
 
-    # Simplified coast reference
-    ax.plot(COAST_POINTS[:, 1], COAST_POINTS[:, 0],
-            "k--", linewidth=0.8, alpha=0.5, zorder=1, label="Coast (polyline)")
+    # Calibrated coastline reference (62-vertex simplified, TIGER/Line 2023)
+    ax.plot(_coast_df["lon"], _coast_df["lat"],
+            "k--", linewidth=0.8, alpha=0.5, zorder=1, label="Coast (calibrated)")
 
     ax.set_xlabel("Longitude")
     ax.set_ylabel("Latitude")
@@ -361,6 +443,49 @@ if __name__ == "__main__":
               f" < full-portfolio spread {spread_all:.1f} km")
     else:
         print("[SKIP] Spatial coherence: too few positive-wind locations to test")
+
+    # -----------------------------------------------------------------------
+    # 3. Landfall sanity check — 10,000 simulated landfalls
+    # -----------------------------------------------------------------------
+    print("\n=== Landfall sanity check (10,000 events) ===")
+    sc_rng = np.random.default_rng(SEED + 2)
+    n_sc   = 10_000
+    n_atl, n_gulf       = 0, 0
+    atl_s,  gulf_s      = [], []
+    atl_hdgs, gulf_hdgs = [], []
+
+    for _ in range(n_sc):
+        lat_i, lon_i, s_i = sample_landfall(sc_rng)
+        regime_i = "atlantic" if s_i < _S_CUT_KM else "gulf"
+        rcfg_i   = _REGIME_CFG[regime_i]
+        hdg_i    = float(np.degrees(sc_rng.vonmises(
+            np.radians(rcfg_i["heading_mean_deg"]), rcfg_i["heading_kappa"]
+        )) % 360.0)
+        if regime_i == "atlantic":
+            n_atl += 1; atl_s.append(s_i); atl_hdgs.append(hdg_i)
+        else:
+            n_gulf += 1; gulf_s.append(s_i); gulf_hdgs.append(hdg_i)
+
+    def _circ_mean(hdgs):
+        r = np.radians(hdgs)
+        return float(np.degrees(np.arctan2(np.mean(np.sin(r)), np.mean(np.cos(r)))) % 360.0)
+
+    atl_hm  = _circ_mean(atl_hdgs)
+    gulf_hm = _circ_mean(gulf_hdgs)
+
+    print(f"Regime split  : atlantic={n_atl} ({100*n_atl/n_sc:.1f}%) | "
+          f"gulf={n_gulf} ({100*n_gulf/n_sc:.1f}%)")
+    print(f"  Historical  :            ~42%                  ~58%  (47/112, 65/112)")
+    print(f"Mean s_km     : atlantic={np.mean(atl_s):.0f} km (< s_cut={_S_CUT_KM:.0f}) | "
+          f"gulf={np.mean(gulf_s):.0f} km (> s_cut={_S_CUT_KM:.0f})")
+    print(f"Circ mean hdg : atlantic={atl_hm:.1f}° (target 314.5°, NW) | "
+          f"gulf={gulf_hm:.1f}° (target 30.7°, NE)")
+
+    assert 280.0 <= atl_hm <= 360.0, f"Atlantic circ mean {atl_hm:.1f}° not in NW sector"
+    assert   0.0 <= gulf_hm <=  90.0, f"Gulf circ mean {gulf_hm:.1f}° not in NE sector"
+    assert float(np.mean(atl_s)) < _S_CUT_KM,  "Atlantic centroid s not below s_cut"
+    assert float(np.mean(gulf_s)) > _S_CUT_KM,  "Gulf centroid s not above s_cut"
+    print("[OK] Regime, heading, and arc-length sanity checks passed")
 
     # -----------------------------------------------------------------------
     # Summary
