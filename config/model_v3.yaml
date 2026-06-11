@@ -92,6 +92,56 @@ hazard:
     units: "dimensionless"
     source: "illustrative (v2)"
 
+  landfall_geography:
+    coastline_path:
+      value: "data/processed/fl_coastline_simplified.csv"
+      units: "file_path"
+      source: "TIGER/Line 2023 FL state boundary; forward arc GA-FL Atlantic corner -> Keys (embedded in mainland ring) -> AL-FL panhandle corner; 5 km Douglas-Peucker simplification (EPSG:3086). See calibration/landfall_geography.py."
+    simplify_tolerance_m:
+      value: 5000
+      units: "m"
+      source: "1/10 of minimum HU wind radius (50 km); eliminates TIGER sub-km digitization noise while preserving all macroscale geographic features relevant to landfall geography."
+    n_vertices_raw:
+      value: 8232
+      units: "count"
+      source: "TIGER/Line 2023 FL mainland exterior ring coastal arc (GA-FL to AL-FL, includes Keys); before simplification"
+    n_vertices_simplified:
+      value: 61
+      units: "count"
+      source: "After Douglas-Peucker 5 km simplification in EPSG:3086"
+    total_arc_length_km:
+      value: 2247.75
+      units: "km"
+      source: "EPSG:3086 arc-length of simplified coastline"
+    endpoint_start:
+      value: [-81.469687, 30.712350]
+      units: "[lon_deg, lat_deg]"
+      source: "GA-FL Atlantic border, NE Florida; s=0 reference"
+    endpoint_end:
+      value: [-87.598998, 30.996298]
+      units: "[lon_deg, lat_deg]"
+      source: "AL-FL panhandle border; s=L reference"
+    keys_handling:
+      value: "Keys embedded in mainland exterior ring; no separate polygon insertion. Forward arc from GA corner through Atlantic-S, Keys (min lat 24.3963°N), Gulf-N to AL corner — 8232 raw vertices."
+      units: "text"
+      source: "calibration/landfall_geography.py"
+    kde_bandwidth_silverman_km:
+      value: 240.869
+      units: "km"
+      source: "Silverman rule: h = 1.06 * std(s) * n^(-1/5), n=112 HU landfalls"
+    kde_silverman_factor:
+      value: 0.412234
+      units: "dimensionless"
+      source: "scipy gaussian_kde bw_method factor; actual_bw_km = factor * std(s_km)"
+    n_HU:
+      value: 112
+      units: "count"
+      source: "HURDAT2 fl_landfalls.csv, status==HU, full record 1851-2024"
+    s_samples_km:
+      value: [1950.775, 917.909, 1456.901, 1799.327, 1970.280, 1419.541, 917.909, 1071.658, 1673.246, 1187.391, 454.451, 443.517, 1605.579, 1813.411, 1266.117, 1581.223, 875.323, 2124.537, 1928.730, 1508.183, 713.711, 311.181, 1549.433, 2067.403, 1642.766, 1729.999, 1881.873, 1484.123, 2040.440, 587.035, 1607.245, 632.714, 1230.237, 1954.257, 2029.369, 1599.545, 1808.257, 1807.097, 1875.744, 651.198, 769.789, 767.287, 766.297, 917.909, 2104.323, 273.191, 1877.435, 2115.388, 2059.458, 917.909, 1447.328, 1898.708, 1175.484, 280.092, 616.112, 426.948, 486.749, 689.296, 441.433, 469.986, 726.002, 573.353, 2029.115, 1975.766, 622.927, 917.909, 1530.804, 649.596, 1372.356, 550.202, 1097.493, 1112.275, 783.993, 497.686, 1566.598, 623.800, 2000.704, 1292.028, 2053.203, 735.007, 592.779, 104.675, 1136.531, 682.627, 917.909, 917.909, 1526.854, 2005.252, 462.341, 1920.846, 874.085, 620.109, 2078.841, 2088.714, 1956.411, 837.011, 1068.835, 1263.126, 431.299, 429.762, 2075.230, 917.909, 1175.944, 1771.554, 805.032, 1928.730, 1290.601, 382.669, 1691.707, 1673.072, 1705.436, 1372.961]
+      units: "km"
+      source: "Arc-length projection of 112 HU landfalls onto simplified FL coastline, EPSG:3086; s=0 at GA-FL Atlantic corner (NE Florida)"
+
 vulnerability:
   gust_factor:
     value: 1.3
