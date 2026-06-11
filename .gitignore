@@ -23,3 +23,8 @@ env/
 .DS_Store
 Thumbs.db
 .vscode/
+# Raw data � documented by README, file itself not versioned
+data/raw/*
+!data/raw/README.md
+# Generated parquet artifacts (regenerable by re-running the parser)
+data/processed/*.parquet
