@@ -308,6 +308,14 @@ hazard:
       value: "vickery_wadhera"
       units: "switch"
       source: "Holland B sampling method: 'constant' — placeholder 0.0; 'vickery_wadhera' — V&W (2008) ERDC TR-08-06 eq. (14). See model/hazard.py."
+    wind_profile:
+      value: "holland"
+      units: "switch"
+      source: "Radial wind profile: 'rankine' — modified Rankine vortex (v2 placeholder); 'holland' — Holland (1980) full gradient-balance profile Vg(r)=sqrt((B/rho)*x*dp*exp(-x)+(rf/2)^2)-rf/2, x=(Rmax/r)^B, anchored to Vmax at r=Rmax. Requires b_method != 'constant' (b=0 gives flat Vmax field). See model/wind_field.py."
+    air_density_kg_m3:
+      value: 1.15
+      units: "kg/m^3"
+      source: "Standard tropical marine boundary layer density (NHC/SLOSH, 1.15 kg/m³ at sea level 25°C). Used in Holland (1980) gradient-wind pressure term: (B/rho)*x*dp_pa*exp(-x). See model/wind_field.py."
 
 vickery_wadhera:
   # Rmax regression (eq. 13 in ERDC TR-08-06): ln(Rmax_km) = intercept + dp2_coeff*Δp² + lat_coeff*ψ + ε

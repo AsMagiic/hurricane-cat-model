@@ -418,7 +418,14 @@ if __name__ == "__main__":
     demo_rng              = np.random.default_rng(SEED)
     demo_track, demo_meta = sample_storm(demo_rng)
     demo_wind             = wind_at_locations(
-        demo_track, StormParams(rmax=demo_meta["rmax"], b=demo_meta["b"]), lats, lons
+        demo_track,
+        StormParams(
+            rmax=demo_meta["rmax"],
+            b=demo_meta["b"],
+            dp_mb=demo_meta["dp_mb"],
+            lat=demo_meta["landfall_lat"],
+        ),
+        lats, lons,
     )
 
     print(f"\nDemo storm:  Cat{demo_meta['category']} | "

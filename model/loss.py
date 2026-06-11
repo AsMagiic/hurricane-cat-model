@@ -148,7 +148,16 @@ def run_simulation(n_years, seed=SEED):
         agg_gu = agg_gr = max_gr = 0.0
 
         for track, meta in year_events:
-            winds   = wind_at_locations(track, StormParams(rmax=meta["rmax"]), lats, lons)
+            winds   = wind_at_locations(
+                track,
+                StormParams(
+                    rmax=meta["rmax"],
+                    b=meta["b"],
+                    dp_mb=meta["dp_mb"],
+                    lat=meta["landfall_lat"],
+                ),
+                lats, lons,
+            )
             gu, gr  = _event_loss(winds)
             port_gu = float(gu.sum())
             port_gr = float(gr.sum())
