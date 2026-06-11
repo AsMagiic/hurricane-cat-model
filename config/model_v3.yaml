@@ -142,6 +142,52 @@ hazard:
       units: "km"
       source: "Arc-length projection of 112 HU landfalls onto simplified FL coastline, EPSG:3086; s=0 at GA-FL Atlantic corner (NE Florida)"
 
+  track_stats:
+    heading_mean_deg:
+      value: 3.23
+      units: "degrees_clockwise_from_N"
+      source: "Circular mean of FL HU landfall headings via mean resultant vector: atan2(mean_sin, mean_cos) mod 360. See calibration/track_stats.py."
+    heading_arithmetic_mean_deg:
+      value: 147.5
+      units: "degrees_clockwise_from_N"
+      source: "Naive arithmetic mean of headings; differs from circular mean when distribution spans the 0/360 wrap. Stored for transparency only."
+    heading_circ_std_deg:
+      value: 53.45
+      units: "degrees"
+      source: "Circular std: sqrt(-2*ln(R)) in radians converted to degrees; R = heading_resultant_R."
+    heading_resultant_R:
+      value: 0.6472
+      units: "dimensionless"
+      source: "Mean resultant length sqrt(mean_cos^2 + mean_sin^2); 0 = uniform, 1 = all identical."
+    speed_dist:
+      value: "gamma"
+      units: "scipy_dist_name"
+      source: "MLE fit to FL HU landfall translation speeds; selected by AIC over lognormal and gamma (both floc=0). See calibration/track_stats.py."
+    speed_params:
+      value: [4.957188, 0.000000, 4.761344]
+      units: "scipy_gamma_params_(shape_s,_loc,_scale)"
+      source: "MLE params; reconstruct with scipy.stats.gamma(*speed_params). Units of scale are km/h."
+    speed_mean_kmh:
+      value: 23.603
+      units: "km/h"
+      source: "Sample mean of bracketing-pair translation speeds at FL HU landfall."
+    speed_std_kmh:
+      value: 10.558
+      units: "km/h"
+      source: "Sample std (ddof=1) of bracketing-pair translation speeds."
+    n_HU:
+      value: 112
+      units: "count"
+      source: "HURDAT2 fl_landfalls.csv, status==HU, full record 1851-2024"
+    n_used:
+      value: 112
+      units: "count"
+      source: "Storms with a valid bracketing fix pair; n_HU - n_excluded."
+    n_excluded:
+      value: 0
+      units: "count"
+      source: "Storms excluded: no bracketing pair or degenerate dt=0. See calibration/track_stats.py output."
+
 vulnerability:
   gust_factor:
     value: 1.3
