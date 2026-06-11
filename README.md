@@ -4,7 +4,7 @@
 
 The model builds a book of 1,000 insured locations, simulates 100,000 years of stochastic hurricanes as moving wind footprints, translates wind to damage through construction-specific vulnerability curves, applies per-policy financial terms, and prices the effect of an excess-of-loss (XoL) reinsurance tower on the portfolio's tail — reporting the loss distribution **gross and net of reinsurance**.
 
-> **Note on scope.** A learning / portfolio project built to demonstrate the conceptual engine behind production catastrophe models (RMS, Verisk Touchstone, CoreLogic). The *method* follow the conceptual structure of a vendor-model pipeline — exposure, hazard, vulnerability, financial, and reinsurance — not just aggregate loss simulation. The *input parameters* are illustrative, not calibrated to proprietary data. See [Assumptions](#parameters-and-assumptions) and [Limitations](#limitations).
+> **Note on scope.** A learning / portfolio project built to demonstrate the conceptual engine behind production catastrophe models (RMS, Verisk Touchstone, CoreLogic). The *method* follow the conceptual structure of a vendor-model pipeline — exposure, hazard, vulnerability, financial, and reinsurance — not just aggregate loss simulation. In v3, the hazard parameters (frequency, intensity, landfall geography, and storm track) are calibrated to NOAA HURDAT2; vulnerability and financial parameters remain illustrative pending later phases. See [Assumptions](#parameters-and-assumptions) and [Limitations](#limitations).
 
 ---
 
@@ -26,6 +26,8 @@ The model builds a book of 1,000 insured locations, simulates 100,000 years of s
 
 A synthetic but plausible book: **1,000 coastal locations, USD 500M total insured value (TIV)**, over 100,000 simulated years.
 
+*The table below reflects the frozen v2.0 model. For the recalibrated v3 numbers and why they changed, see the [Calibration: v2 → v3](#calibration-v2--v3) section.*
+
 | Metric (USD M) | AEP Gross | AEP Net | OEP Gross | OEP Net |
 |---|---:|---:|---:|---:|
 | Average Annual Loss | 10.67 | 9.37 | 9.57 | 8.30 |
@@ -37,6 +39,62 @@ A synthetic but plausible book: **1,000 coastal locations, USD 500M total insure
 **What the reinsurance tower buys:** gross-to-net PML reduction of **-44.3% / -55.1%** on a per-occurrence basis (1-in-100 / 1-in-250), and **-35.8% / -36.9%** on an aggregate-annual basis.
 
 A detail worth reading off the numbers: the **OEP net flattens at exactly USD 60M at both return periods**. Because the contiguous tower covers every dollar from the 60M retention up to 200M exhaustion, any single event that pierces the programme leaves the insurer with exactly its 60M retention — a clean illustration of how the tower caps per-occurrence net loss. The **AEP net does *not* flatten**, because a bad year can stack several retentions from multiple events, none of which individually triggers the full tower.
+
+---
+
+## Calibration: v2 → v3
+
+The v2 model used illustrative parameters throughout. Phase 1 of v3 replaces the
+hazard parameters — frequency, intensity, landfall geography, and storm track — with
+estimates calibrated to NOAA's HURDAT2 Atlantic hurricane database (1851–2024). This
+section documents how the headline numbers changed and, more importantly, why.
+
+### The headline shift
+
+| State | AAL gross (AEP) | What changed |
+|---|---:|---|
+| **v2.0** (frozen) | 10.67M | All hazard parameters illustrative |
+| **v3 intermediate** | 9.35M | + calibrated frequency & intensity |
+| **v3 (current)** | 3.58M | + calibrated landfall geography & track |
+
+The change decomposes into two jumps:
+
+**Jump 1 — frequency + intensity (−12%, 10.67M → 9.35M).** The annual landfall rate λ
+moved from the illustrative 0.7 to 0.6576, estimated via a Poisson GLM conditioned on
+the Atlantic Multidecadal Oscillation (current-climate value; see Step 1.3b). Intensity
+moved from discrete Saffir-Simpson category sampling to a continuous truncated-lognormal
+fitted to landfall Vmax. Both are modest, conservative changes — the mean storm
+intensity barely moved (−0.7%); the lognormal mainly corrected the over-representation
+of the extreme tail that uniform-within-category sampling introduced.
+
+**Jump 2 — landfall geography + track (−62%, 9.35M → 3.58M).** This is the large,
+revealing shift. The v2 model placed landfalls using hand-tuned coastal segment weights
+that happened to concentrate storms in the southeast and southwest — coincidentally
+where the synthetic portfolio holds its TIV. The calibrated landfall geography (a KDE
+over arc-length projected onto the TIGER coastline) distributes storms realistically
+along the entire Florida coast. The consequence: **26.6% of simulated landfalls now
+strike the panhandle (west of −84° longitude), where the portfolio has zero exposure.**
+Storm heading was also conditioned on the approach regime (Atlantic landfalls move NW,
+Gulf landfalls move NE — a von Mises distribution per regime, replacing a uniform
+±45° draw), which spreads tracks away from the densely-exposed east coast.
+
+### What this reveals
+
+The −62% drop is not a model defect — it is a correct emergent property. The realistic
+hazard exposes that the synthetic portfolio has a geographically concentrated risk
+profile: it captures southeast/southwest Florida risk but is blind to panhandle
+landfalls. When the hazard was illustrative, its hand-tuned weights happened to align
+with the TIV, inflating the AAL. A calibrated hazard removes that artificial alignment
+and shows the portfolio's true exposure footprint — exactly the kind of insight a
+realistic catastrophe model is supposed to surface.
+
+### A note on attribution granularity
+
+This analysis decomposes the change into two jumps (calibration-of-magnitude and
+calibration-of-geography). A finer, component-by-component attribution waterfall
+(frequency / intensity / geography / heading / and the Phase 2 wind physics) is
+deferred to Phase 2, where per-component configuration switches are built as
+infrastructure the wind-physics comparisons require anyway.
 
 ---
 
@@ -173,7 +231,7 @@ Stated plainly so results are read in context. Several limitations of the v1 agg
 - **No secondary uncertainty.** Damage ratios are deterministic given wind and construction — no variance around the mean curve.
 - **Single peril.** Wind only; no storm surge, inland flood, or demand surge.
 - **Simplified track physics.** Generic +/-45 deg heading, constant Rmax, no forward-speed asymmetry.
-- **Uncalibrated parameters.** All inputs are synthetic and illustrative, not fit to data.
+- **Partially calibrated parameters.** The portfolio and the vulnerability/financial parameters are synthetic; the hazard parameters are calibrated to HURDAT2 (v3, Phase 1).
 - **Reinsurance structure.** No reinstatements, no co-participation, no quota share — the net loss is flat at the retention by design.
 
 Each is a natural extension rather than a flaw.
@@ -182,7 +240,6 @@ Each is a natural extension rather than a flaw.
 
 ## Future extensions
 
-- A stochastic event catalogue with over-dispersed frequency, calibrated to NOAA HURDAT2.
 - Generalized Pareto (peaks-over-threshold) tail modelling.
 - Secondary uncertainty (variance around vulnerability curves).
 - Multi-peril (storm surge, inland flood, demand surge).
