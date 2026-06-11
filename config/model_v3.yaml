@@ -299,6 +299,84 @@ hazard:
           units: "km/h"
           source: "Sample std (ddof=1), gulf regime."
 
+  physics:
+    rmax_method:
+      value: "vickery_wadhera"
+      units: "switch"
+      source: "Rmax sampling method: 'uniform' — v2 legacy (rng.uniform(30,55) km, bit-identical baseline); 'vickery_wadhera' — V&W (2008) ERDC TR-08-06 eq. (13). See model/hazard.py."
+    b_method:
+      value: "vickery_wadhera"
+      units: "switch"
+      source: "Holland B sampling method: 'constant' — placeholder 0.0; 'vickery_wadhera' — V&W (2008) ERDC TR-08-06 eq. (14). See model/hazard.py."
+
+vickery_wadhera:
+  # Rmax regression (eq. 13 in ERDC TR-08-06): ln(Rmax_km) = intercept + dp2_coeff*Δp² + lat_coeff*ψ + ε
+  # Δp in mb, ψ (latitude) in degrees N, Rmax output in km.
+  rmax:
+    intercept:
+      value: 3.015
+      units: "dimensionless"
+      source: "Vickery & Wadhera (2008), ERDC TR-08-06, eq. (13). Regression on Atlantic basin landfalls. See model/hazard.py."
+    dp2_coeff:
+      value: -6.291e-5
+      units: "1/mb^2"
+      source: "[same as vickery_wadhera.rmax.intercept]"
+    lat_coeff:
+      value: 0.0337
+      units: "1/deg"
+      source: "[same as vickery_wadhera.rmax.intercept]"
+    sigma_low_dp:
+      value: 0.448
+      units: "dimensionless"
+      source: "V&W (2008) ERDC TR-08-06 heteroscedastic σ for ln(Rmax) when Δp ≤ 87 mb."
+    sigma_mid_dp_a:
+      value: 1.137
+      units: "dimensionless"
+      source: "V&W (2008) σ = a − b·Δp for 87 < Δp ≤ 120 mb; intercept term."
+    sigma_mid_dp_b:
+      value: 0.00792
+      units: "1/mb"
+      source: "V&W (2008) σ = a − b·Δp for 87 < Δp ≤ 120 mb; slope term."
+    sigma_high_dp:
+      value: 0.186
+      units: "dimensionless"
+      source: "V&W (2008) σ for ln(Rmax) when Δp > 120 mb."
+    dp_break_lo:
+      value: 87.0
+      units: "mb"
+      source: "V&W (2008) σ piecewise lower breakpoint."
+    dp_break_hi:
+      value: 120.0
+      units: "mb"
+      source: "V&W (2008) σ piecewise upper breakpoint."
+  # Holland B regression (eq. 14 in ERDC TR-08-06): B = intercept + rmax_coeff*Rmax_km + lat_coeff*ψ + ε
+  # Rmax_km in km (coupled to rmax equation output), ψ in degrees N. B censored to [b_min, b_max].
+  b:
+    intercept:
+      value: 1.881
+      units: "dimensionless"
+      source: "Vickery & Wadhera (2008), ERDC TR-08-06, eq. (14). See model/hazard.py."
+    rmax_coeff:
+      value: -0.00557
+      units: "1/km"
+      source: "[same as vickery_wadhera.b.intercept]. Negative: compact storms (small Rmax) have higher B."
+    lat_coeff:
+      value: -0.01295
+      units: "1/deg"
+      source: "[same as vickery_wadhera.b.intercept]"
+    sigma:
+      value: 0.221
+      units: "dimensionless"
+      source: "V&W (2008) B equation residual std."
+    b_min:
+      value: 0.5
+      units: "dimensionless"
+      source: "V&W (2008) physical lower bound for Holland B."
+    b_max:
+      value: 2.5
+      units: "dimensionless"
+      source: "V&W (2008) physical upper bound for Holland B."
+
 vulnerability:
   gust_factor:
     value: 1.3

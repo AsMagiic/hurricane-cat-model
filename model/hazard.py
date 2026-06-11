@@ -58,6 +58,38 @@ _OUTER_DECAY  = _mcfg.hazard.outer_decay_exponent
 _RMAX_MIN_KM  = float(_mcfg.hazard.rmax_km_min)
 _RMAX_MAX_KM  = float(_mcfg.hazard.rmax_km_max)
 
+# Physics switches — "uniform"|"vickery_wadhera" for rmax; "constant"|"vickery_wadhera" for b.
+_RMAX_METHOD = str(_mcfg.hazard.physics.rmax_method)
+_B_METHOD    = str(_mcfg.hazard.physics.b_method)
+assert _RMAX_METHOD in {"uniform", "vickery_wadhera"}, (
+    f"hazard.physics.rmax_method must be 'uniform' or 'vickery_wadhera'; got {_RMAX_METHOD!r}"
+)
+assert _B_METHOD in {"constant", "vickery_wadhera"}, (
+    f"hazard.physics.b_method must be 'constant' or 'vickery_wadhera'; got {_B_METHOD!r}"
+)
+
+_vwcfg = _mcfg.vickery_wadhera
+_VW_RMAX_INTERCEPT   = float(_vwcfg.rmax.intercept)
+_VW_RMAX_DP2_COEFF   = float(_vwcfg.rmax.dp2_coeff)
+_VW_RMAX_LAT_COEFF   = float(_vwcfg.rmax.lat_coeff)
+_VW_RMAX_SIG_LOW     = float(_vwcfg.rmax.sigma_low_dp)
+_VW_RMAX_SIG_MID_A   = float(_vwcfg.rmax.sigma_mid_dp_a)
+_VW_RMAX_SIG_MID_B   = float(_vwcfg.rmax.sigma_mid_dp_b)
+_VW_RMAX_SIG_HIGH    = float(_vwcfg.rmax.sigma_high_dp)
+_VW_RMAX_DP_BREAK_LO = float(_vwcfg.rmax.dp_break_lo)
+_VW_RMAX_DP_BREAK_HI = float(_vwcfg.rmax.dp_break_hi)
+_VW_B_INTERCEPT      = float(_vwcfg.b.intercept)
+_VW_B_RMAX_COEFF     = float(_vwcfg.b.rmax_coeff)
+_VW_B_LAT_COEFF      = float(_vwcfg.b.lat_coeff)
+_VW_B_SIGMA          = float(_vwcfg.b.sigma)
+_VW_B_MIN            = float(_vwcfg.b.b_min)
+_VW_B_MAX            = float(_vwcfg.b.b_max)
+
+# WPR pass-through — forward-compute Δp from Vmax (already in mph from sample_intensity).
+# _WPR_B_EXP named to avoid shadowing the local variable b in sample_storm.
+_WPR_A     = float(_mcfg.wind_pressure.a)
+_WPR_B_EXP = float(_mcfg.wind_pressure.b)
+
 # ---------------------------------------------------------------------------
 # Calibrated landfall geography + regime parameters  (Step 1.5b)
 # ---------------------------------------------------------------------------
@@ -109,6 +141,85 @@ for _rname, _rcfg_r in [("atlantic", _by_reg.atlantic), ("gulf", _by_reg.gulf)]:
         "speed_shape":      float(_sp[0]),
         "speed_scale":      float(_sp[2]),
     }
+
+# ---------------------------------------------------------------------------
+# V&W (2008) Rmax and Holland-B — pure functions, no I/O, directly testable
+# ---------------------------------------------------------------------------
+
+def _sigma_rmax(dp_mb: float) -> float:
+    """
+    Heteroscedastic σ for ln(Rmax) from V&W (2008) ERDC TR-08-06 eq. (13).
+
+    Parameters
+    ----------
+    dp_mb : float -- pressure deficit Δp in mb
+
+    Returns
+    -------
+    sigma : float -- std of ln(Rmax) error term (dimensionless)
+    """
+    if dp_mb <= _VW_RMAX_DP_BREAK_LO:
+        return _VW_RMAX_SIG_LOW
+    elif dp_mb <= _VW_RMAX_DP_BREAK_HI:
+        return _VW_RMAX_SIG_MID_A - _VW_RMAX_SIG_MID_B * dp_mb
+    else:
+        return _VW_RMAX_SIG_HIGH
+
+
+def _vw_rmax_mean(dp_mb: float, lat_deg: float) -> float:
+    """
+    Deterministic component of ln(Rmax_km), V&W (2008) eq. (13).
+
+    Parameters
+    ----------
+    dp_mb   : float -- pressure deficit Δp in mb
+    lat_deg : float -- latitude in degrees N
+
+    Returns
+    -------
+    ln_rmax_mean : float -- deterministic ln(Rmax_km), without error term
+    """
+    return _VW_RMAX_INTERCEPT + _VW_RMAX_DP2_COEFF * dp_mb ** 2 + _VW_RMAX_LAT_COEFF * lat_deg
+
+
+def _vw_b_mean(rmax_km: float, lat_deg: float) -> float:
+    """
+    Deterministic component of Holland B, V&W (2008) eq. (14).
+
+    Parameters
+    ----------
+    rmax_km : float -- radius of maximum winds in km
+    lat_deg : float -- latitude in degrees N
+
+    Returns
+    -------
+    b_mean : float -- deterministic B (uncensored, without error term)
+    """
+    return _VW_B_INTERCEPT + _VW_B_RMAX_COEFF * rmax_km + _VW_B_LAT_COEFF * lat_deg
+
+
+def _vw_rmax_sample(dp_mb: float, lat_deg: float, sub_rng) -> float:
+    """
+    Sample Rmax_km from V&W (2008) eq. (13). Consumes one draw from sub_rng.
+
+    Unit chain: ln(Rmax_km) = _vw_rmax_mean(dp_mb, lat_deg) + N(0, σ);
+                Rmax_km = exp(ln_rmax).
+    dp_mb in mb; lat_deg in degrees N; returns Rmax in km.
+    """
+    ln_rmax = _vw_rmax_mean(dp_mb, lat_deg) + sub_rng.normal(0.0, _sigma_rmax(dp_mb))
+    return float(np.exp(ln_rmax))
+
+
+def _vw_b_sample(rmax_km: float, lat_deg: float, sub_rng) -> float:
+    """
+    Sample Holland B from V&W (2008) eq. (14). Consumes one draw from sub_rng.
+
+    B = _vw_b_mean(rmax_km, lat_deg) + N(0, sigma), censored to [b_min, b_max].
+    rmax_km in km (coupled from _vw_rmax_sample output); lat_deg in degrees N.
+    """
+    b = _vw_b_mean(rmax_km, lat_deg) + sub_rng.normal(0.0, _VW_B_SIGMA)
+    return float(np.clip(b, _VW_B_MIN, _VW_B_MAX))
+
 
 # ---------------------------------------------------------------------------
 # Landfall sampling
@@ -165,7 +276,7 @@ def sample_intensity(rng):
 # ---------------------------------------------------------------------------
 # Track building
 # ---------------------------------------------------------------------------
-def build_track(landfall_lat, landfall_lon, vmax, heading_deg, rng):
+def build_track(landfall_lat, landfall_lon, vmax, heading_deg, rmax_km):
     """
     Generate a 10-step inland track starting at the landfall point.
 
@@ -174,14 +285,14 @@ def build_track(landfall_lat, landfall_lon, vmax, heading_deg, rng):
     heading_deg : float — meteorological bearing (degrees; 0=N, 90=E, 180=S, 270=W).
                           Passed from sample_storm (regime-conditioned von Mises draw).
                           Advance convention unchanged: heading=0 → dlat>0, dlon=0.
+    rmax_km     : float — radius of maximum winds (km), sampled in sample_storm
+                          (uniform or V&W depending on physics switch), constant along track.
 
     Returns
     -------
-    rmax  : float — radius of maximum winds (km), constant along track
     track : ndarray (11, 4) — columns: [lat, lon, vmax_step, cum_dist_km]
               row 0 = landfall (peak intensity), rows 1-10 = inland steps
     """
-    rmax        = float(rng.uniform(_RMAX_MIN_KM, _RMAX_MAX_KM))   # km, constant (no eyewall contraction)
     heading_rad = np.radians(heading_deg)
 
     n_steps = 10
@@ -200,7 +311,7 @@ def build_track(landfall_lat, landfall_lon, vmax, heading_deg, rng):
         lat += dlat
         lon += dlon
 
-    return rmax, np.array(rows)
+    return np.array(rows)
 
 # ---------------------------------------------------------------------------
 # Single-storm sampler
@@ -209,32 +320,65 @@ def sample_storm(rng):
     """
     Sample one complete storm (track + metadata).
 
+    RNG discipline (Phase 2):
+        Legacy stream draws (in order): sample_landfall x2 (integer+normal),
+        vonmises, gamma, sample_intensity, then rng.uniform(30,55) ONLY when
+        rmax_method='uniform'.  All new physics (V&W Rmax error, B error) draw
+        from sub_rng, which is spawned UNCONDITIONALLY via rng.spawn(1)[0].
+        rng.spawn() uses SeedSequence counters — it does NOT consume variates
+        from rng, so the legacy stream is bit-identical when switches are legacy.
+
     Returns
     -------
     track    : ndarray (11, 4) — [lat, lon, vmax_step, cum_dist_km]
-    metadata : dict   — category, vmax_landfall, rmax, landfall_lat, landfall_lon,
-                        regime, heading_deg, translation_speed_kmh
+    metadata : dict   — category, vmax_landfall, rmax, dp_mb, b,
+                        landfall_lat, landfall_lon, regime, heading_deg,
+                        translation_speed_kmh
     """
-    lat_lf, lon_lf, s_km = sample_landfall(rng)
+    lat_lf, lon_lf, s_km = sample_landfall(rng)              # rng draws 1-2
 
     regime = "atlantic" if s_km < _S_CUT_KM else "gulf"
     rcfg   = _REGIME_CFG[regime]
 
     # Von Mises heading — kappa derived from resultant R via Mardia & Jupp (2000).
-    # rng.vonmises(mu_rad, kappa) returns radians in [-π, π]; convert and wrap to [0, 360).
     mu_rad      = np.radians(rcfg["heading_mean_deg"])
-    heading_deg = float(np.degrees(rng.vonmises(mu_rad, rcfg["heading_kappa"])) % 360.0)
+    heading_deg = float(np.degrees(rng.vonmises(mu_rad, rcfg["heading_kappa"])) % 360.0)  # rng draw 3
 
-    # Gamma translation speed — rng.gamma(shape, scale); loc=0 asserted at import.
-    speed_kmh = float(rng.gamma(rcfg["speed_shape"], rcfg["speed_scale"]))
+    # Gamma translation speed — loc=0 asserted at import.
+    speed_kmh = float(rng.gamma(rcfg["speed_shape"], rcfg["speed_scale"]))                # rng draw 4
 
-    category, vmax = sample_intensity(rng)
-    rmax, track    = build_track(lat_lf, lon_lf, vmax, heading_deg, rng)
+    category, vmax = sample_intensity(rng)                    # rng draw 5 (uniform inside)
+
+    # Spawn per-storm substream UNCONDITIONALLY. rng.spawn() derives children via
+    # SeedSequence counters and does NOT consume variates from rng — the legacy
+    # stream is entirely unperturbed regardless of which physics switches are active.
+    sub_rng = rng.spawn(1)[0]
+
+    # Δp from calibrated WPR: Δp = a · Vmax_mph^b_exp.
+    # vmax is already in mph (sample_intensity calls kt_to_mph).
+    dp_mb = float(_WPR_A * vmax ** _WPR_B_EXP)
+
+    if _RMAX_METHOD == "uniform":
+        # Legacy draw: same stream position as pre-V&W implementation (rng draw 6).
+        # sub_rng is intentionally unused on this path — the unconditional spawn
+        # ensures the legacy stream is unaffected by the existence of V&W physics.
+        rmax_km = float(rng.uniform(_RMAX_MIN_KM, _RMAX_MAX_KM))   # rng draw 6
+    else:  # "vickery_wadhera"
+        rmax_km = _vw_rmax_sample(dp_mb, lat_lf, sub_rng)           # sub_rng draw 1
+
+    if _B_METHOD == "constant":
+        b = 0.0
+    else:  # "vickery_wadhera"
+        b = _vw_b_sample(rmax_km, lat_lf, sub_rng)                  # sub_rng draw 2 (or 1 if rmax=uniform)
+
+    track = build_track(lat_lf, lon_lf, vmax, heading_deg, rmax_km)
 
     return track, {
         "category":              category,
         "vmax_landfall":         vmax,
-        "rmax":                  rmax,
+        "rmax":                  rmax_km,
+        "dp_mb":                 dp_mb,
+        "b":                     b,
         "landfall_lat":          lat_lf,
         "landfall_lon":          lon_lf,
         "regime":                regime,
@@ -273,13 +417,17 @@ if __name__ == "__main__":
     # -----------------------------------------------------------------------
     demo_rng              = np.random.default_rng(SEED)
     demo_track, demo_meta = sample_storm(demo_rng)
-    demo_wind             = wind_at_locations(demo_track, StormParams(rmax=demo_meta["rmax"]), lats, lons)
+    demo_wind             = wind_at_locations(
+        demo_track, StormParams(rmax=demo_meta["rmax"], b=demo_meta["b"]), lats, lons
+    )
 
     print(f"\nDemo storm:  Cat{demo_meta['category']} | "
           f"Vmax={demo_meta['vmax_landfall']:.1f} mph | "
           f"Rmax={demo_meta['rmax']:.1f} km | "
+          f"dp={demo_meta['dp_mb']:.1f} mb | "
+          f"B={demo_meta['b']:.3f} | "
           f"landfall=({demo_meta['landfall_lat']:.3f}, {demo_meta['landfall_lon']:.3f}) | "
-          f"regime={demo_meta['regime']} | heading={demo_meta['heading_deg']:.1f}° | "
+          f"regime={demo_meta['regime']} | heading={demo_meta['heading_deg']:.1f}deg | "
           f"speed={demo_meta['translation_speed_kmh']:.1f} km/h")
     print(f"Wind range at portfolio: {demo_wind.min():.1f} - {demo_wind.max():.1f} mph")
 
@@ -456,7 +604,7 @@ if __name__ == "__main__":
     print("\n=== Summary ===")
     best_idx = int(demo_wind.argmax())
     print(f"Demo storm category / Vmax : Cat{demo_meta['category']} / {demo_meta['vmax_landfall']:.1f} mph")
-    print(f"Rmax                       : {demo_meta['rmax']:.1f} km")
+    print(f"Rmax / dp / B              : {demo_meta['rmax']:.1f} km / {demo_meta['dp_mb']:.1f} mb / {demo_meta['b']:.3f}")
     print(f"Peak wind at portfolio     : {demo_wind.max():.1f} mph  "
           f"({exp['location_id'].iloc[best_idx]}, "
           f"lat={lats[best_idx]:.4f}, lon={lons[best_idx]:.4f})")
