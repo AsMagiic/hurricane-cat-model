@@ -40,6 +40,9 @@ import matplotlib.ticker as mticker
 _DIR  = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.dirname(_DIR)
 sys.path.insert(0, _DIR)
+sys.path.insert(0, _ROOT)
+from model_config import load_model_cfg
+_mcfg = load_model_cfg()
 
 from ep_utils import oep_pml, ep_curve, pml_rank_diagnostic
 
@@ -48,13 +51,9 @@ OUT_DIR     = os.path.join(_ROOT, "outputs")
 os.makedirs(OUT_DIR, exist_ok=True)
 
 # ---------------------------------------------------------------------------
-# XoL programme definition  -- edit here to recalibrate
+# XoL programme definition -- loaded from config/model_v3.yaml
 # ---------------------------------------------------------------------------
-LAYERS = [
-    {"name": "Layer 1", "attachment": 60_000_000,  "limit": 40_000_000},
-    {"name": "Layer 2", "attachment": 100_000_000, "limit": 50_000_000},
-    {"name": "Layer 3", "attachment": 150_000_000, "limit": 50_000_000},
-]
+LAYERS = _mcfg.reinsurance.layers
 
 TOTAL_CAPACITY = sum(lyr["limit"]  for lyr in LAYERS)            # 140M
 TOP_OF_TOWER   = LAYERS[-1]["attachment"] + LAYERS[-1]["limit"]  # 200M

@@ -12,44 +12,37 @@ Key simplifications (documented; appropriate for a portfolio cat model demo):
 """
 
 import os
+import sys
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _ROOT)
+from model_config import load_model_cfg
+_mcfg = load_model_cfg()
+
 # ---------------------------------------------------------------------------
-# Constants
+# Constants -- loaded from config/model_v3.yaml
 # ---------------------------------------------------------------------------
-SEED   = 42
-LAMBDA = 0.7   # Poisson rate (storms/year) — keeps continuity with v1 model
+SEED   = _mcfg.simulation.seed
+LAMBDA = _mcfg.frequency.lambda_rate   # Poisson rate (storms/year)
 
-# Saffir-Simpson category wind ranges (mph, sustained) and FL landfall weights
-# Weights are illustrative; loosely calibrated to historical FL landfall frequencies.
-CAT_RANGES  = [(74, 95), (96, 110), (111, 129), (130, 156), (157, 185)]
-CAT_WEIGHTS = np.array([0.40, 0.25, 0.18, 0.13, 0.04])
+# Saffir-Simpson category wind ranges (mph, sustained) and FL landfall weights.
+CAT_RANGES  = [tuple(r) for r in _mcfg.frequency.category_ranges]
+CAT_WEIGHTS = np.array(_mcfg.frequency.category_weights)
 
-# Florida coastline polyline for landfall sampling (lat, lon).
-# Ordered: Atlantic N→S, Keys, Gulf S→N.
-COAST_POINTS = np.array([
-    (28.5, -80.60),  # 0  Atlantic N
-    (27.5, -80.30),  # 1
-    (26.7, -80.03),  # 2
-    (26.1, -80.10),  # 3  Miami metro (SE high-risk)
-    (25.6, -80.12),  # 4
-    (25.1, -80.45),  # 5  Keys start
-    (24.7, -81.10),  # 6  Keys tip
-    (25.9, -81.40),  # 7  Gulf SW — Collier/Lee (SW high-risk)
-    (26.5, -82.00),  # 8
-    (27.3, -82.55),  # 9
-    (27.8, -82.75),  # 10
-    (28.2, -82.75),  # 11 Gulf N
-])
+# Florida coastline polyline for landfall sampling.
+# Ordered: Atlantic N->S, Keys, Gulf S->N.  Shape (12, 2): each row is [lat, lon].
+COAST_POINTS = np.array(_mcfg.hazard.coast_polyline)
 
-# Per-segment weights (11 segments for 12 points).
-# Higher weights on SE segments (2-3, Miami metro) and SW segments (7-8, Lee/Collier)
-# to reflect observed FL landfall climatology.
-SEGMENT_WEIGHTS = np.array([1.0, 1.5, 2.5, 3.0,   # Atlantic
-                             1.5, 1.0, 1.0,          # Keys
-                             2.5, 2.0, 1.5, 1.0])    # Gulf
+# Per-segment weights (11 segments for 12 points).  Coupled to COAST_POINTS.
+SEGMENT_WEIGHTS = np.array(_mcfg.hazard.coast_segment_weights)
+
+# Hazard mechanics
+_STEP_KM     = _mcfg.hazard.step_km
+_EFOLD_KM    = _mcfg.hazard.efold_km
+_OUTER_DECAY = _mcfg.hazard.outer_decay_exponent
 
 # ---------------------------------------------------------------------------
 # Haversine distance
@@ -109,8 +102,8 @@ def build_track(landfall_lat, landfall_lon, vmax, rng):
     heading_rad = np.radians(heading_deg)
 
     n_steps = 10
-    step_km = 30.0
-    e_fold  = 120.0   # inland filling e-folding distance (km)
+    step_km = _STEP_KM
+    e_fold  = _EFOLD_KM
 
     rows = []
     lat, lon = landfall_lat, landfall_lon
@@ -148,7 +141,7 @@ def wind_at_locations(track, rmax, lats, lons):
         wind   = np.where(
             d <= rmax,
             vmax_step * (d / rmax),
-            vmax_step * (rmax / safe_d) ** 0.6,
+            vmax_step * (rmax / safe_d) ** _OUTER_DECAY,
         )
         np.maximum(max_wind, wind, out=max_wind)
 
@@ -295,7 +288,7 @@ if __name__ == "__main__":
 
     mean_n        = float(np.mean(counts))
     cat3plus_frac = cat3plus / total if total > 0 else 0.0
-    theoretical_cat3plus = 0.18 + 0.13 + 0.04   # = 0.35
+    theoretical_cat3plus = float(np.sum(CAT_WEIGHTS[2:]))
 
     assert abs(mean_n - LAMBDA) < 0.05, \
         f"Mean N/year {mean_n:.3f} too far from lambda={LAMBDA}"

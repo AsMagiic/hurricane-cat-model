@@ -7,34 +7,24 @@ is fully reproducible across machines and Python versions.
 """
 
 import os
+import sys
 import numpy as np
 import pandas as pd
 
-# ---------------------------------------------------------------------------
-# Parameters
-# ---------------------------------------------------------------------------
-N_LOCATIONS = 1000
-SEED        = 42
-TARGET_TIV  = 500_000_000
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _ROOT)
+from model_config import load_exposure_cfg
+_ecfg = load_exposure_cfg()
 
-COUNTIES = [
-    "Miami-Dade", "Broward", "Palm Beach", "Lee",
-    "Pinellas", "Hillsborough", "Collier", "Monroe",
-]
-# More weight toward south Florida, as specified.
-COUNTY_WEIGHTS = np.array([0.22, 0.16, 0.14, 0.10, 0.10, 0.10, 0.09, 0.09])
-
-# (lat, lon) centroid used as the origin for the normal jitter.
-COUNTY_CENTROIDS = {
-    "Miami-Dade":   (25.61, -80.40),
-    "Broward":      (26.15, -80.30),
-    "Palm Beach":   (26.65, -80.20),
-    "Lee":          (26.55, -81.90),
-    "Pinellas":     (27.90, -82.70),
-    "Hillsborough": (27.95, -82.30),
-    "Collier":      (26.10, -81.60),
-    "Monroe":       (24.80, -81.00),
-}
+# ---------------------------------------------------------------------------
+# Parameters -- loaded from config/exposure.yaml
+# ---------------------------------------------------------------------------
+N_LOCATIONS      = _ecfg.n_locations
+SEED             = _ecfg.seed
+TARGET_TIV       = _ecfg.target_tiv
+COUNTIES         = _ecfg.counties
+COUNTY_WEIGHTS   = np.array(_ecfg.county_weights)
+COUNTY_CENTROIDS = _ecfg.county_centroids
 
 # ---------------------------------------------------------------------------
 # Single RNG — every draw from here in sequence; order must not change.
@@ -60,10 +50,11 @@ lat = np.round(cent_lat + rng.normal(0, 0.1, N_LOCATIONS), 4)
 lon = np.round(cent_lon + rng.normal(0, 0.1, N_LOCATIONS), 4)
 
 # --- tiv ---
-# Lognormal with E[X] = 500_000 and CV = 1.0.
-# CV = 1  →  σ_log = sqrt(ln(2)),  μ_log = ln(E[X]) − σ_log² / 2.
-tiv_sigma_log = np.sqrt(np.log(2))                          # ≈ 0.8326
-tiv_mu_log    = np.log(500_000) - tiv_sigma_log**2 / 2
+# Lognormal with E[X] = TARGET_TIV/N_LOCATIONS and a configurable CV.
+# sigma_log = sqrt(ln(1 + CV^2));  mu_log = ln(E[X]) - sigma_log^2 / 2.
+TIV_CV        = _ecfg.tiv_cv
+tiv_sigma_log = np.sqrt(np.log(1 + TIV_CV**2))             # CV=1 -> sqrt(ln(2)) ~= 0.8326
+tiv_mu_log    = np.log(TARGET_TIV / N_LOCATIONS) - tiv_sigma_log**2 / 2
 raw_tiv       = rng.lognormal(mean=tiv_mu_log, sigma=tiv_sigma_log, size=N_LOCATIONS)
 
 # Scale the vector so its sum equals TARGET_TIV, then round to integers.
@@ -74,15 +65,15 @@ tiv = np.round(raw_tiv / raw_tiv.sum() * TARGET_TIV).astype(np.int64)
 tiv[np.argmax(tiv)] += TARGET_TIV - tiv.sum()
 
 # --- occupancy ---
-OCC_CHOICES = ["Single Family", "Condo", "Mobile Home"]
-OCC_WEIGHTS = np.array([0.68, 0.22, 0.10])
+OCC_CHOICES = _ecfg.occupancy.choices
+OCC_WEIGHTS = np.array(_ecfg.occupancy.weights)
 occupancy   = rng.choice(OCC_CHOICES, size=N_LOCATIONS, p=OCC_WEIGHTS)
 
 # --- construction (must be consistent with occupancy) ---
 # Rule: Mobile Home → always "Manufactured".
 # All other occupancies draw from the remaining types; Masonry is the majority.
-CONST_OTHERS  = ["Wood Frame", "Masonry", "Reinforced Concrete"]
-CONST_WEIGHTS = np.array([0.25, 0.55, 0.20])
+CONST_OTHERS  = _ecfg.construction.non_manufactured_types
+CONST_WEIGHTS = np.array(_ecfg.construction.weights)
 
 construction = np.empty(N_LOCATIONS, dtype=object)
 mobile_mask  = occupancy == "Mobile Home"
@@ -93,8 +84,8 @@ construction[~mobile_mask] = rng.choice(CONST_OTHERS, size=n_other, p=CONST_WEIG
 # --- deductible_pct ---
 # Hurricane deductibles in Florida are set as a percentage of TIV.
 # Common regulatory tiers: 2 %, 5 %, 10 %.
-DED_CHOICES = np.array([0.02, 0.05, 0.10])
-DED_WEIGHTS = np.array([0.30, 0.50, 0.20])
+DED_CHOICES = np.array(_ecfg.deductibles.choices)
+DED_WEIGHTS = np.array(_ecfg.deductibles.weights)
 deductible_pct = rng.choice(DED_CHOICES, size=N_LOCATIONS, p=DED_WEIGHTS)
 
 # --- deductible (dollar amount) and limit ---

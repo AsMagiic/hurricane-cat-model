@@ -29,16 +29,19 @@ import pandas as pd
 _DIR  = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.dirname(_DIR)
 sys.path.insert(0, _DIR)
+sys.path.insert(0, _ROOT)
+from model_config import load_model_cfg
+_mcfg = load_model_cfg()
 
 from hazard        import simulate_year, wind_at_locations, LAMBDA
 from vulnerability import GUST_FACTOR, GUST_THRESHOLD, CONSTRUCTION_PARAMS
 from ep_utils      import oep_pml, ep_curve, pml_rank_diagnostic
 
 # ---------------------------------------------------------------------------
-# Configuration
+# Configuration -- loaded from config/model_v3.yaml
 # ---------------------------------------------------------------------------
-SEED    = 42
-N_YEARS = 100_000
+SEED    = _mcfg.simulation.seed
+N_YEARS = _mcfg.simulation.n_years
 
 RESULTS_DIR = os.path.join(_ROOT, "results")
 os.makedirs(RESULTS_DIR, exist_ok=True)

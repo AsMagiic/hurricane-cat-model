@@ -1,0 +1,112 @@
+# Florida hurricane cat model — v2 calibration parameters
+# Every scalar entry carries: value, units, source.
+# Derived values (TOP_OF_TOWER, TOTAL_CAPACITY, theoretical_cat3plus, etc.)
+# are computed in code — never hardcode them here.
+
+simulation:
+  n_years:
+    value: 100000
+    units: "simulated_years"
+    source: "design choice (v2)"
+  seed:
+    value: 42
+    units: "dimensionless"
+    source: "design choice (v2)"
+
+frequency:
+  lambda_rate:
+    value: 0.7
+    units: "storms_per_year"
+    source: "illustrative (v2)"
+  # Saffir-Simpson sustained wind ranges (mph, 1-minute average) for Cat 1-5.
+  category_ranges:
+    value: [[74, 95], [96, 110], [111, 129], [130, 156], [157, 185]]
+    units: "mph_sustained"
+    source: "Saffir-Simpson"
+  # Illustrative FL landfall weights; loosely calibrated to historical frequencies.
+  category_weights:
+    value: [0.40, 0.25, 0.18, 0.13, 0.04]
+    units: "probability"
+    source: "illustrative (v2)"
+
+hazard:
+  # FL coastline polyline — [lat_deg, lon_deg] for each vertex.
+  # Ordered: Atlantic N->S, Keys, Gulf S->N.  12 points = 11 segments.
+  coast_polyline:
+    value:
+      - [28.5, -80.60]   #  0  Atlantic N
+      - [27.5, -80.30]   #  1
+      - [26.7, -80.03]   #  2
+      - [26.1, -80.10]   #  3  Miami metro (SE high-risk)
+      - [25.6, -80.12]   #  4
+      - [25.1, -80.45]   #  5  Keys start
+      - [24.7, -81.10]   #  6  Keys tip
+      - [25.9, -81.40]   #  7  Gulf SW -- Collier/Lee (SW high-risk)
+      - [26.5, -82.00]   #  8
+      - [27.3, -82.55]   #  9
+      - [27.8, -82.75]   # 10
+      - [28.2, -82.75]   # 11  Gulf N
+    units: "[lat_deg, lon_deg]"
+    source: "illustrative (v2)"
+  # 11 weights for 11 segments.  Coupled to coast_polyline: must have len-1 entries.
+  # Higher weights on SE (segments 2-3) and SW (segments 7-8) to reflect
+  # observed FL landfall climatology.
+  coast_segment_weights:
+    value: [1.0, 1.5, 2.5, 3.0, 1.5, 1.0, 1.0, 2.5, 2.0, 1.5, 1.0]
+    units: "relative_weight"
+    source: "illustrative (v2)"
+  step_km:
+    value: 30.0
+    units: "km"
+    source: "design choice (v2)"
+  efold_km:
+    value: 120.0
+    units: "km"
+    source: "illustrative (v2)"
+  # Exponent for the outer-vortex power-law decay: V = Vmax*(Rmax/d)^exponent for d>Rmax.
+  outer_decay_exponent:
+    value: 0.6
+    units: "dimensionless"
+    source: "illustrative (v2)"
+
+vulnerability:
+  gust_factor:
+    value: 1.3
+    units: "dimensionless"
+    source: "HAZUS Exposure C"
+  gust_threshold:
+    value: 65.0
+    units: "mph_gust"
+    source: "illustrative (v2)"
+  # Per-construction logistic curve: dr(g) = cap / (1 + exp(-k*(g - midpoint)))
+  # for g >= gust_threshold; 0 otherwise.  All wind speeds in 3-s peak gust (mph).
+  construction_params:
+    Manufactured:
+      midpoint: {value: 110.0, units: "mph_gust",     source: "HAZUS-anchored (v2)"}
+      cap:      {value: 1.00,  units: "fraction",      source: "HAZUS-anchored (v2)"}
+      k:        {value: 0.080, units: "per_mph_gust",  source: "HAZUS-anchored (v2)"}
+    Wood Frame:
+      midpoint: {value: 145.0, units: "mph_gust",     source: "HAZUS-anchored (v2)"}
+      cap:      {value: 1.00,  units: "fraction",      source: "HAZUS-anchored (v2)"}
+      k:        {value: 0.050, units: "per_mph_gust",  source: "HAZUS-anchored (v2)"}
+    Masonry:
+      midpoint: {value: 165.0, units: "mph_gust",     source: "HAZUS-anchored (v2)"}
+      cap:      {value: 0.90,  units: "fraction",      source: "HAZUS-anchored (v2)"}
+      k:        {value: 0.050, units: "per_mph_gust",  source: "HAZUS-anchored (v2)"}
+    Reinforced Concrete:
+      midpoint: {value: 185.0, units: "mph_gust",     source: "HAZUS-anchored (v2)"}
+      cap:      {value: 0.75,  units: "fraction",      source: "HAZUS-anchored (v2)"}
+      k:        {value: 0.045, units: "per_mph_gust",  source: "HAZUS-anchored (v2)"}
+
+reinsurance:
+  # Per-occurrence XoL layers.  TOTAL_CAPACITY and TOP_OF_TOWER are derived in code.
+  layers:
+    - name:       {value: "Layer 1", units: "label", source: "design choice (v2)"}
+      attachment: {value: 60000000,  units: "USD",   source: "illustrative (v2)"}
+      limit:      {value: 40000000,  units: "USD",   source: "illustrative (v2)"}
+    - name:       {value: "Layer 2", units: "label", source: "design choice (v2)"}
+      attachment: {value: 100000000, units: "USD",   source: "illustrative (v2)"}
+      limit:      {value: 50000000,  units: "USD",   source: "illustrative (v2)"}
+    - name:       {value: "Layer 3", units: "label", source: "design choice (v2)"}
+      attachment: {value: 150000000, units: "USD",   source: "illustrative (v2)"}
+      limit:      {value: 50000000,  units: "USD",   source: "illustrative (v2)"}
