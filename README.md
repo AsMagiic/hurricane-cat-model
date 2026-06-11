@@ -108,9 +108,9 @@ Gust factor 1.3 (open terrain, Exposure C); damage forced to zero below a 65 mph
 
 | Layer | Structure | Covers per-event loss |
 |---|---|---|
-| Working | 40M xs 60M | 60M - 100M |
-| Middle | 50M xs 100M | 100M - 150M |
-| Cat high | 50M xs 150M | 150M - 200M |
+| Layer 1 | 40M xs 60M | 60M - 100M |
+| Layer 2 | 50M xs 100M | 100M - 150M |
+| Layer 3 | 50M xs 150M | 150M - 200M |
 
 60M retention, 140M total capacity, 200M exhaustion.
 
@@ -133,7 +133,7 @@ The `-sigma^2/2` correction offsets the upward pull of the tail so the arithmeti
 
 The headline table above is the model's output. Three things the numbers tell:
 
-**The value of reinsurance.** The gap between the gross and net curves is what the XoL programme buys. On a per-occurrence basis it removes 48M from the 1-in-100 single-event loss (107.7M -> 60.0M) and 73.7M from the 1-in-250 (133.7M -> 60.0M). The expected annual recovery — the technical floor of the programme's premium — is about USD 1.29M/year, concentrated in the Working layer (which triggers in ~3.9% of years) and tapering to the Cat-high layer (~0.2% of years).
+**The value of reinsurance.** The gap between the gross and net curves is what the XoL programme buys. On a per-occurrence basis it removes 48M from the 1-in-100 single-event loss (107.7M -> 60.0M) and 73.7M from the 1-in-250 (133.7M -> 60.0M). The expected annual recovery — the technical floor of the programme's premium — is about USD 1.29M/year, concentrated in Layer 1 (which triggers in ~3.9% of years) and tapering to Layer 3 (~0.2% of years).
 
 **Vulnerability drives loss concentration.** Average Annual Loss by construction departs sharply from the share of value: Manufactured homes hold 8.7% of TIV but contribute **32.4%** of AAL (3.7x), while Reinforced Concrete holds 15.2% of TIV and just 3.5% of loss (0.2x). This is the construction-differentiated vulnerability working as intended.
 

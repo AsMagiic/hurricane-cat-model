@@ -5,9 +5,9 @@ Applies a per-occurrence multi-layer XoL programme to the gross portfolio losses
 from Step 4 (loss.py) and derives the net (post-reinsurance) loss series.
 
 Three-layer tower (occurrence XoL, contiguous):
-  Working  : 40M xs  60M   covers  60M - 100M per occurrence
-  Middle   : 50M xs 100M   covers 100M - 150M per occurrence
-  Cat high : 50M xs 150M   covers 150M - 200M per occurrence
+  Layer 1  : 40M xs  60M   covers  60M - 100M per occurrence
+  Layer 2  : 50M xs 100M   covers 100M - 150M per occurrence
+  Layer 3  : 50M xs 150M   covers 150M - 200M per occurrence
 
 Recovery per event (vectorized over portfolio_gross):
   rec_layer = clip(gross - attachment, 0, layer_limit)
@@ -51,9 +51,9 @@ os.makedirs(OUT_DIR, exist_ok=True)
 # XoL programme definition  -- edit here to recalibrate
 # ---------------------------------------------------------------------------
 LAYERS = [
-    {"name": "Working",  "attachment": 60_000_000,  "limit": 40_000_000},
-    {"name": "Middle",   "attachment": 100_000_000, "limit": 50_000_000},
-    {"name": "Cat high", "attachment": 150_000_000, "limit": 50_000_000},
+    {"name": "Layer 1", "attachment": 60_000_000,  "limit": 40_000_000},
+    {"name": "Layer 2", "attachment": 100_000_000, "limit": 50_000_000},
+    {"name": "Layer 3", "attachment": 150_000_000, "limit": 50_000_000},
 ]
 
 TOTAL_CAPACITY = sum(lyr["limit"]  for lyr in LAYERS)            # 140M
