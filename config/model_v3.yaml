@@ -33,6 +33,24 @@ frequency:
     units: "probability"
     source: "illustrative (v2)"
 
+intensity:
+  distribution:
+    value: "trunclognorm"
+    units: "scipy_dist_name"
+    source: "MLE Truncated Lognormal fit to FL HU landfall Vmax, HURDAT2 full record 1851-2024 (n=112); selected over Shifted Weibull on upper-tail QQ MAD (1.49 kt vs 1.81 kt), dAIC=-2.30. Full record used for intensity (tail events scarce; pre-satellite Vmax measurement bias non-directional) vs satellite era for frequency (count detection bias). See calibration/intensity.py."
+  loc:
+    value: 64.0
+    units: "kt"
+    source: "HU definitional threshold (Saffir-Simpson 64 kt)"
+  mu_log:
+    value: 4.4362
+    units: "log_kt"
+    source: "MLE Truncated Lognormal fit to FL HU landfall Vmax, HURDAT2 full record 1851-2024 (n=112); selected over Shifted Weibull on upper-tail QQ MAD (1.49 kt vs 1.81 kt), dAIC=-2.30. Full record used for intensity (tail events scarce; pre-satellite Vmax measurement bias non-directional) vs satellite era for frequency (count detection bias). See calibration/intensity.py."
+  sigma_log:
+    value: 0.2518
+    units: "dimensionless"
+    source: "MLE Truncated Lognormal fit to FL HU landfall Vmax, HURDAT2 full record 1851-2024 (n=112); selected over Shifted Weibull on upper-tail QQ MAD (1.49 kt vs 1.81 kt), dAIC=-2.30. Full record used for intensity (tail events scarce; pre-satellite Vmax measurement bias non-directional) vs satellite era for frequency (count detection bias). See calibration/intensity.py."
+
 hazard:
   # FL coastline polyline — [lat_deg, lon_deg] for each vertex.
   # Ordered: Atlantic N->S, Keys, Gulf S->N.  12 points = 11 segments.
