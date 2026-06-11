@@ -19,7 +19,7 @@ frequency:
     units: "storms_per_year"
     source: "illustrative (v2)"
   lambda_hu_fl:
-    value: 0.6452
+    value: 0.6576
     units: "events/year"
     source: "Poisson GLM (log link), covariates: standardized TNA SST + AMO, 1966-2022 satellite era; current-climate value = exp(b0 + b1*TNA_curr + b2*AMO_curr) evaluated at 2013-2022 mean climate. HURDAT2 + NOAA PSL TNA + AMO unsmoothed. See calibration/frequency_glm.py."
   # Saffir-Simpson sustained wind ranges (mph, 1-minute average) for Cat 1-5.

@@ -22,9 +22,16 @@ Physical sign expectations
 b1 > 0 : warmer Tropical N. Atlantic → higher HU frequency
 b2 > 0 : positive AMO                → higher HU frequency
 
-If either sign is reversed the YAML is NOT updated and a warning is printed.
+If AMO sign is wrong in the selected model, the YAML is NOT updated.
+
+Model selection
+---------------
+When |r(TNA, AMO)| > 0.8, both the full (TNA+AMO) and reduced (AMO-only)
+models are always fitted and compared by AIC. The lower-AIC model is selected.
+The AIC comparison is printed to stdout before any config write.
 """
 
+import argparse
 import os
 import sys
 import urllib.request
@@ -266,6 +273,16 @@ def _make_plot(df: pd.DataFrame, fitted: np.ndarray, path: str) -> None:
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    ap = argparse.ArgumentParser(
+        description="Fit Poisson GLM for FL HU landfall frequency."
+    )
+    ap.add_argument(
+        "--dry-run", action="store_true",
+        help="Print results but do NOT write lambda_hu_fl to config/model_v3.yaml.",
+    )
+    args = ap.parse_args()
+    dry_run = args.dry_run
+
     # ---- Step 1: HU count series ----------------------------------------
     counts = _annual_hu_counts(_FL_CSV, SAT_START, SAT_END)
 
@@ -301,29 +318,41 @@ if __name__ == "__main__":
     df["tna_z"] = (df["tna"] - tna_mean) / tna_std
     df["amo_z"] = (df["amo"] - amo_mean) / amo_std
 
-    # ---- Step 5: Fit Poisson GLM ----------------------------------------
-    X = sm.add_constant(df[["tna_z", "amo_z"]])
-    result = sm.GLM(df["count"], X, family=sm.families.Poisson()).fit()
+    # ---- Step 5: Fit both GLMs (two-covariate and AMO-only) -------------
+    X_full = sm.add_constant(df[["tna_z", "amo_z"]])
+    result_full = sm.GLM(df["count"], X_full, family=sm.families.Poisson()).fit()
 
-    b0 = float(result.params["const"])
-    b1 = float(result.params["tna_z"])
-    b2 = float(result.params["amo_z"])
+    X_amo_only = sm.add_constant(df[["amo_z"]])
+    result_amo_only = sm.GLM(
+        df["count"], X_amo_only, family=sm.families.Poisson()
+    ).fit()
+
+    b0 = float(result_full.params["const"])
+    b1 = float(result_full.params["tna_z"])
+    b2 = float(result_full.params["amo_z"])
     df.attrs["b0"] = b0
     df.attrs["b1"] = b1
     df.attrs["b2"] = b2
-    fitted = result.fittedvalues.values
 
-    null_dev  = float(result.null_deviance)
-    resid_dev = float(result.deviance)
+    null_dev  = float(result_full.null_deviance)
+    resid_dev = float(result_full.deviance)
     dev_expl  = (null_dev - resid_dev) / null_dev
-    aic       = float(result.aic)
-    pvals     = result.pvalues
-    bses      = result.bse
-    zstats    = result.tvalues
+    aic_full  = float(result_full.aic)
+    pvals     = result_full.pvalues
+    bses      = result_full.bse
+    zstats    = result_full.tvalues
+
+    b0_amo_only       = float(result_amo_only.params["const"])
+    b2_amo_only       = float(result_amo_only.params["amo_z"])
+    aic_amo_only      = float(result_amo_only.aic)
+    dev_expl_amo_only = (
+        (float(result_amo_only.null_deviance) - float(result_amo_only.deviance))
+        / float(result_amo_only.null_deviance)
+    )
 
     r_tna_amo, _ = pearsonr(df["tna"], df["amo"])
 
-    # ---- Step 6: Report -------------------------------------------------
+    # ---- Step 6: Report full model --------------------------------------
     print("\n=== Poisson GLM — Florida HU landfall frequency ===\n")
     print(f"Covariates: TNA SST (standardized), AMO (standardized)"
           f"  |  {fit_start}–{fit_end}  n={n_fit}\n")
@@ -341,7 +370,7 @@ if __name__ == "__main__":
         print(f"  {name:<14}  {b:>8.4f}  {se:>8.4f}  {z:>7.3f}  {p:>8.4f}  {sign_flag}")
 
     print()
-    print(f"  AIC               : {aic:.2f}")
+    print(f"  AIC (TNA+AMO)     : {aic_full:.2f}")
     print(f"  Deviance explained: {dev_expl * 100:.1f}%")
     print(f"  Null deviance     : {null_dev:.4f}")
     print(f"  Residual deviance : {resid_dev:.4f}")
@@ -351,73 +380,57 @@ if __name__ == "__main__":
         print("  [NOTE: |r| > 0.7 — moderate multicollinearity]", end="")
     print()
 
-    # ---- Step 7: Sign check — gate for config write ---------------------
-    # When |r(TNA,AMO)| is high the two-covariate model is nearly collinear:
-    # TNA's individual coefficient becomes unreliable (absorbs AMO's variance
-    # and may flip sign).  Fallback: if signs fail AND |r| > 0.8, refit with
-    # AMO only — the reduced model is statistically preferred and avoids the
-    # collinearity artefact.
-
-    signs_ok = (b1 > 0) and (b2 > 0)
-
-    # Track which model we are actually using for lambda_current.
+    # ---- Step 7: Model selection — always compare AICs when |r| > 0.8 ---
+    # Even when both coefficients have correct signs, high collinearity inflates
+    # standard errors and p-values, making the extra TNA parameter unreliable.
+    # AIC comparison is the correct selection criterion here.
     active_model   = "two-covariate (TNA + AMO)"
-    active_result  = result
+    active_result  = result_full
     active_b0      = b0
-    active_tna_z   = df["tna_z"].values   # needed for plot fitted values
-    active_amo_z   = df["amo_z"].values
+    fitted         = result_full.fittedvalues.values
 
-    if not signs_ok:
-        bad = []
-        if b1 <= 0:
-            bad.append(f"tna_z  b1 = {b1:.4f} <= 0  (expected > 0)")
-        if b2 <= 0:
-            bad.append(f"amo_z  b2 = {b2:.4f} <= 0  (expected > 0)")
-        print("\nWARNING: coefficient sign(s) do not match physical expectations:")
-        for msg in bad:
-            print(f"  {msg}")
+    if abs(r_tna_amo) > 0.8:
+        print(f"\n  |r(TNA, AMO)| = {abs(r_tna_amo):.3f} > 0.8 "
+              "— AIC model comparison:")
+        print(f"    AIC  TNA+AMO  : {aic_full:.2f}")
+        print(f"    AIC  AMO-only : {aic_amo_only:.2f}")
+        print()
+        print("  AMO-only model coefficients:")
+        print(f"    intercept : {b0_amo_only:.4f}  "
+              f"(SE {result_amo_only.bse['const']:.4f}, "
+              f"p {result_amo_only.pvalues['const']:.4f})")
+        print(f"    amo_z     : {b2_amo_only:.4f}  "
+              f"(SE {result_amo_only.bse['amo_z']:.4f}, "
+              f"p {result_amo_only.pvalues['amo_z']:.4f})  "
+              f"{'OK' if b2_amo_only > 0 else '*** WRONG SIGN ***'}")
+        print(f"    AIC       : {aic_amo_only:.2f}")
+        print(f"    Dev. expl.: {dev_expl_amo_only * 100:.1f}%")
 
-        if abs(r_tna_amo) > 0.8:
-            print(f"  |r(TNA, AMO)| = {abs(r_tna_amo):.3f} > 0.8 — "
-                  "multicollinearity likely cause.")
-            print("  Attempting AMO-only reduced model ...\n")
-
-            X_amo = sm.add_constant(df[["amo_z"]])
-            result_amo = sm.GLM(df["count"], X_amo,
-                                family=sm.families.Poisson()).fit()
-            b0_amo = float(result_amo.params["const"])
-            b2_amo = float(result_amo.params["amo_z"])
-
-            null_dev_amo  = float(result_amo.null_deviance)
-            resid_dev_amo = float(result_amo.deviance)
-            dev_expl_amo  = (null_dev_amo - resid_dev_amo) / null_dev_amo
-
-            print("  AMO-only model:")
-            print(f"    intercept : {b0_amo:.4f}  "
-                  f"(SE {result_amo.bse['const']:.4f}, "
-                  f"p {result_amo.pvalues['const']:.4f})")
-            print(f"    amo_z     : {b2_amo:.4f}  "
-                  f"(SE {result_amo.bse['amo_z']:.4f}, "
-                  f"p {result_amo.pvalues['amo_z']:.4f})"
-                  f"  {'OK' if b2_amo > 0 else '*** WRONG SIGN ***'}")
-            print(f"    AIC       : {result_amo.aic:.2f}")
-            print(f"    Dev. expl.: {dev_expl_amo * 100:.1f}%")
-
-            if b2_amo > 0:
-                print("  AMO-only sign OK — using reduced model for lambda_current.")
-                active_model  = "AMO-only (TNA dropped: |r(TNA,AMO)| > 0.8)"
-                active_result = result_amo
-                active_b0     = b0_amo
-                # Update plot fitted values to AMO-only model.
-                fitted = result_amo.fittedvalues.values
-                df.attrs["b0"] = b0_amo
-                df.attrs["b1"] = 0.0      # TNA term absent
-                df.attrs["b2"] = b2_amo
-                signs_ok = True
-            else:
-                print("  AMO-only sign also wrong — config/model_v3.yaml NOT updated.")
+        if aic_amo_only <= aic_full:
+            delta = aic_full - aic_amo_only
+            print(f"\n  -> AMO-only SELECTED  "
+                  f"(dAIC = {delta:.2f} in favour of reduced model)")
+            active_model  = (
+                f"AMO-only (TNA dropped: dAIC = {delta:.2f}, "
+                f"|r| = {abs(r_tna_amo):.3f})"
+            )
+            active_result = result_amo_only
+            active_b0     = b0_amo_only
+            fitted        = result_amo_only.fittedvalues.values
+            df.attrs["b0"] = b0_amo_only
+            df.attrs["b1"] = 0.0
+            df.attrs["b2"] = b2_amo_only
         else:
-            print("  lambda_hu_fl NOT updated in config/model_v3.yaml.")
+            delta = aic_amo_only - aic_full
+            print(f"\n  -> Two-covariate SELECTED  "
+                  f"(dAIC = {delta:.2f} in favour of full model)")
+
+    # Sign check on selected model's AMO coefficient.
+    b2_active = float(active_result.params["amo_z"])
+    signs_ok  = b2_active > 0
+    if not signs_ok:
+        print(f"\n  WARNING: selected model AMO coefficient {b2_active:.4f} <= 0 "
+              "(expected > 0) — config NOT updated.")
 
     # ---- Step 8: lambda_current -----------------------------------------
     window_end   = fit_end
@@ -430,14 +443,18 @@ if __name__ == "__main__":
 
     amo_curr_z = (df.loc[window_mask, "amo"].mean() - amo_mean) / amo_std
 
-    if "tna_z" in active_result.params.index and active_model != "AMO-only (TNA dropped: |r(TNA,AMO)| > 0.8)":
+    if "tna_z" in active_result.params.index:
         tna_curr_z     = (df.loc[window_mask, "tna"].mean() - tna_mean) / tna_std
-        lambda_current = float(np.exp(b0 + b1 * tna_curr_z + b2 * amo_curr_z))
+        lambda_current = float(np.exp(
+            active_b0
+            + float(active_result.params["tna_z"]) * tna_curr_z
+            + b2_active * amo_curr_z
+        ))
     else:
-        b2_use         = float(active_result.params["amo_z"])
-        lambda_current = float(np.exp(active_b0 + b2_use * amo_curr_z))
+        lambda_current = float(np.exp(active_b0 + b2_active * amo_curr_z))
 
-    lambda_constant = 0.4407   # Step 1.3 MLE — for comparison only
+    # Recomputed from catalogue — same value frequency.py writes to config.
+    lambda_constant = float(counts.mean())
     print(f"\n  Model used                              : {active_model}")
     print(f"  lambda_constant (Step 1.3 MLE, 1966-{fit_end}): "
           f"{lambda_constant:.4f} events/yr")
@@ -452,9 +469,14 @@ if __name__ == "__main__":
             start=fit_start, end=fit_end,
             cw_start=window_start, cw_end=window_end,
         )
-        _write_lambda_hu_fl(_MODEL_CFG, lambda_current, source)
-        print(f"\n  lambda_hu_fl = {lambda_current:.4f} written to "
-              "config/model_v3.yaml")
+        if dry_run:
+            print(f"\n  DRY RUN — lambda_hu_fl = {lambda_current:.4f} "
+                  "NOT written to config/model_v3.yaml "
+                  "(re-run without --dry-run to persist).")
+        else:
+            _write_lambda_hu_fl(_MODEL_CFG, lambda_current, source)
+            print(f"\n  lambda_hu_fl = {lambda_current:.4f} written to "
+                  "config/model_v3.yaml")
     else:
         print("\n  config/model_v3.yaml not modified.")
 
