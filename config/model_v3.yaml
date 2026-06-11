@@ -188,6 +188,86 @@ hazard:
       units: "count"
       source: "Storms excluded: no bracketing pair or degenerate dt=0. See calibration/track_stats.py output."
 
+    by_regime:
+      # Cape Sable (25.12N 81.10W) projected onto simplified FL coastline.
+      # s < s_cut -> atlantic (includes Keys); s >= s_cut -> gulf.
+      # Keys are atlantic-side: the polyline dips south through the Keys
+      # before returning north to Cape Sable, so all Keys arc-lengths < s_cut.
+      s_cut_km:
+        value: 1057.43
+        units: "km"
+        source: "Cape Sable (25.12N 81.10W) projected onto simplified FL coastline; scaled to EPSG:3086 arc-length for direct comparison with s_samples_km. See calibration/track_stats.py."
+      s_cut_frac:
+        value: 0.4704
+        units: "dimensionless"
+        source: "s_cut_km / total_arc_length_km"
+      atlantic:
+        n:
+          value: 47
+          units: "count"
+          source: "HU landfalls s < s_cut_km (Atlantic coast + Keys). Keys classified atlantic: arc-length dips south through Keys before Cape Sable."
+        heading_mean_deg:
+          value: 314.46
+          units: "degrees_clockwise_from_N"
+          source: "Circular mean, atlantic regime (expected: NW sector ~300-340 deg). See calibration/track_stats.py."
+        heading_circ_std_deg:
+          value: 45.17
+          units: "degrees"
+          source: "Circular std, atlantic regime."
+        heading_resultant_R:
+          value: 0.7328
+          units: "dimensionless"
+          source: "Mean resultant length, atlantic regime."
+        speed_dist:
+          value: "gamma"
+          units: "scipy_dist_name"
+          source: "MLE fit, atlantic regime. See calibration/track_stats.py."
+        speed_params:
+          value: [6.393271, 0.000000, 3.157488]
+          units: "scipy_gamma_params_(shape_s,_loc,_scale)"
+          source: "MLE params; scipy.stats.gamma(*speed_params). Scale in km/h."
+        speed_mean_kmh:
+          value: 20.187
+          units: "km/h"
+          source: "Sample mean, atlantic regime."
+        speed_std_kmh:
+          value: 7.666
+          units: "km/h"
+          source: "Sample std (ddof=1), atlantic regime."
+      gulf:
+        n:
+          value: 65
+          units: "count"
+          source: "HU landfalls s >= s_cut_km (Gulf coast + panhandle, SW FL northward)."
+        heading_mean_deg:
+          value: 30.72
+          units: "degrees_clockwise_from_N"
+          source: "Circular mean, gulf regime (expected: NE sector ~20-60 deg). See calibration/track_stats.py."
+        heading_circ_std_deg:
+          value: 31.06
+          units: "degrees"
+          source: "Circular std, gulf regime."
+        heading_resultant_R:
+          value: 0.8634
+          units: "dimensionless"
+          source: "Mean resultant length, gulf regime."
+        speed_dist:
+          value: "gamma"
+          units: "scipy_dist_name"
+          source: "MLE fit, gulf regime. See calibration/track_stats.py."
+        speed_params:
+          value: [4.786641, 0.000000, 5.447044]
+          units: "scipy_gamma_params_(shape_s,_loc,_scale)"
+          source: "MLE params; scipy.stats.gamma(*speed_params). Scale in km/h."
+        speed_mean_kmh:
+          value: 26.073
+          units: "km/h"
+          source: "Sample mean, gulf regime."
+        speed_std_kmh:
+          value: 11.675
+          units: "km/h"
+          source: "Sample std (ddof=1), gulf regime."
+
 vulnerability:
   gust_factor:
     value: 1.3

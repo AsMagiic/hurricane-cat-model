@@ -39,6 +39,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import scipy.stats
+import yaml
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -53,6 +54,12 @@ _CFG_PATH = os.path.join(_ROOT, "config", "model_v3.yaml")
 
 _KMH_TO_KT = 1.0 / 1.852   # exact: 1 kt = 1.852 km/h
 _DT_FLAG_H  = 6.0            # flag bracketing pairs wider than this (track gap)
+
+_COAST_CSV         = os.path.join(_ROOT, "data", "processed", "fl_coastline_simplified.csv")
+_OUT_PLOT_REG      = os.path.join(_ROOT, "outputs", "track_stats_by_regime.png")
+_CAPE_SABLE_LON    = -81.10   # southern tip of FL mainland; Atlantic->Gulf transition
+_CAPE_SABLE_LAT    = 25.12
+_TOTAL_EPSG3086_KM = 2247.75  # from config hazard.landfall_geography.total_arc_length_km
 
 
 # ---------------------------------------------------------------------------
@@ -432,6 +439,351 @@ def make_plot(headings, speeds, circ_mean_deg, winner, all_fits):
 
 
 # ---------------------------------------------------------------------------
+# H: Cape Sable arc-length — regime cut point
+# ---------------------------------------------------------------------------
+
+def project_to_polyline_km(q_lon, q_lat, poly_lons, poly_lats):
+    """
+    Return (s_km, d_km): arc-length of the nearest point on the lon/lat polyline
+    from s=0, and the snap distance from the query point to that nearest point.
+
+    Cumulative arc-lengths between vertices use haversine.
+    Segment projection uses a local planar approximation (accurate within FL scale).
+    """
+    n   = len(poly_lons)
+    cum = [0.0]
+    for i in range(n - 1):
+        cum.append(cum[-1] + haversine_km(
+            poly_lats[i], poly_lons[i], poly_lats[i + 1], poly_lons[i + 1]
+        ))
+
+    lat_ref = math.radians(q_lat)
+    km_lat  = 111.32
+    km_lon  = 111.32 * math.cos(lat_ref)
+
+    def xy(lon, lat):
+        return lon * km_lon, lat * km_lat
+
+    qx, qy    = xy(q_lon, q_lat)
+    best_dist = float("inf")
+    best_s    = 0.0
+
+    for i in range(n - 1):
+        ax, ay = xy(poly_lons[i],     poly_lats[i])
+        bx, by = xy(poly_lons[i + 1], poly_lats[i + 1])
+        seg_sq = (bx - ax) ** 2 + (by - ay) ** 2
+        if seg_sq < 1e-12:
+            t = 0.0
+        else:
+            t = max(0.0, min(1.0,
+                ((qx - ax) * (bx - ax) + (qy - ay) * (by - ay)) / seg_sq
+            ))
+        px, py = ax + t * (bx - ax), ay + t * (by - ay)
+        d = math.sqrt((qx - px) ** 2 + (qy - py) ** 2)
+        if d < best_dist:
+            best_dist = d
+            seg_arc   = haversine_km(
+                poly_lats[i], poly_lons[i], poly_lats[i + 1], poly_lons[i + 1]
+            )
+            best_s    = cum[i] + t * seg_arc
+
+    return best_s, best_dist
+
+
+def compute_s_cut():
+    """
+    Project Cape Sable (_CAPE_SABLE_LAT, _CAPE_SABLE_LON) onto the simplified
+    FL coastline.  Return (s_cut_km, d_nearest_km) where s_cut_km is scaled to
+    match the EPSG:3086 arc-length system used by s_samples_km in the config.
+
+    Scaling: haversine arc-length of each polyline segment is proportional to
+    the EPSG:3086 distance at FL latitudes (error < 0.2%); we rescale the
+    haversine-based s_cut by (EPSG3086_total / haversine_total) so that s_cut
+    is directly comparable to s_samples_km without requiring pyproj here.
+    """
+    coast     = pd.read_csv(_COAST_CSV)
+    poly_lons = list(coast["lon"])
+    poly_lats = list(coast["lat"])
+
+    s_cut_hav, d_nearest = project_to_polyline_km(
+        _CAPE_SABLE_LON, _CAPE_SABLE_LAT, poly_lons, poly_lats
+    )
+
+    total_hav = 0.0
+    for i in range(len(poly_lons) - 1):
+        total_hav += haversine_km(
+            poly_lats[i], poly_lons[i], poly_lats[i + 1], poly_lons[i + 1]
+        )
+
+    # Rescale to EPSG:3086 arc-length system
+    s_cut = s_cut_hav * (_TOTAL_EPSG3086_KM / total_hav)
+    return s_cut, d_nearest
+
+
+# ---------------------------------------------------------------------------
+# I: Regime classification
+# ---------------------------------------------------------------------------
+
+def classify_regimes(records, s_samples_km, s_cut_km):
+    """
+    Partition records into 'atlantic' (s < s_cut_km) and 'gulf' (s >= s_cut_km).
+
+    Keys decision: the simplified polyline dips south through the Keys before
+    returning north to Cape Sable.  All Keys landfalls therefore have arc-lengths
+    less than s_cut and are classified as 'atlantic'.  This is geographically
+    appropriate — Keys storms approach from the east/southeast, sharing the
+    Atlantic-coast approach geometry (NW headings).
+    """
+    if len(records) != len(s_samples_km):
+        raise ValueError(
+            f"len(records)={len(records)} != len(s_samples_km)={len(s_samples_km)}"
+        )
+    atl_recs  = []
+    gulf_recs = []
+    for rec, s in zip(records, s_samples_km):
+        (atl_recs if s < s_cut_km else gulf_recs).append(rec)
+    return atl_recs, gulf_recs
+
+
+# ---------------------------------------------------------------------------
+# J: Per-regime statistics
+# ---------------------------------------------------------------------------
+
+def per_regime_stats(recs, label):
+    """Circular heading stats + speed MLE for a regime subset."""
+    headings = [r["heading_deg"] for r in recs]
+    speeds   = np.array([r["speed_kmh"] for r in recs], dtype=float)
+    print(f"\n{label} (n={len(recs)}):")
+    circ             = circular_stats(headings)
+    print(f"  Circular mean    : {circ['mean_deg']:.1f}°")
+    print(f"  Circular std     : {circ['circ_std_deg']:.1f}°")
+    print(f"  Resultant R      : {circ['resultant_R']:.4f}")
+    print(f"  Speed distribution MLE:")
+    winner, params, _ = fit_speed_dist(speeds)
+    print(f"  Speed mean : {np.mean(speeds):.1f} km/h  ({np.mean(speeds)*_KMH_TO_KT:.1f} kt)")
+    print(f"  Speed std  : {np.std(speeds, ddof=1):.1f} km/h")
+    return circ, winner, params, speeds
+
+
+# ---------------------------------------------------------------------------
+# K: Sanity check
+# ---------------------------------------------------------------------------
+
+def sanity_check_regimes(a_circ, g_circ):
+    """
+    Atlantic landfalls move NW (280–360°); Gulf landfalls move NE (0–90°).
+    Raises RuntimeError if either regime's circular mean is outside its expected
+    sector — that signals an s_cut or classification bug.
+    """
+    a_mu = a_circ["mean_deg"]
+    g_mu = g_circ["mean_deg"]
+    a_ok = 280.0 <= a_mu <= 360.0
+    g_ok =   0.0 <= g_mu <=  90.0
+    if not a_ok:
+        raise RuntimeError(
+            f"SANITY FAIL: Atlantic mean {a_mu:.1f}° not in NW sector [280, 360]. "
+            "Check s_cut or regime classification."
+        )
+    if not g_ok:
+        raise RuntimeError(
+            f"SANITY FAIL: Gulf mean {g_mu:.1f}° not in NE sector [0, 90]. "
+            "Check s_cut or regime classification."
+        )
+    print(f"  Sanity OK: Atlantic {a_mu:.1f}° (NW sector)  |  Gulf {g_mu:.1f}° (NE sector)")
+
+
+# ---------------------------------------------------------------------------
+# L: Regime config write (targeted insertion — no yaml round-trip)
+# ---------------------------------------------------------------------------
+
+def write_regime_config(s_cut_km, total_arc_km,
+                         a_circ, a_winner, a_params, a_speeds, n_atl,
+                         g_circ, g_winner, g_params, g_speeds, n_gulf):
+    with open(_CFG_PATH, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+
+    if any("by_regime:" in line for line in lines):
+        print("Config: hazard.track_stats.by_regime already present — skipping write.")
+        return
+
+    def fmt_p(ps):
+        return "[" + ", ".join(f"{p:.6f}" for p in ps) + "]"
+
+    a_mean = round(float(np.mean(a_speeds)), 3)
+    a_std  = round(float(np.std(a_speeds, ddof=1)), 3)
+    g_mean = round(float(np.mean(g_speeds)), 3)
+    g_std  = round(float(np.std(g_speeds, ddof=1)), 3)
+
+    block = (
+        "    by_regime:\n"
+        "      # Cape Sable (25.12N 81.10W) projected onto simplified FL coastline.\n"
+        "      # s < s_cut -> atlantic (includes Keys); s >= s_cut -> gulf.\n"
+        "      # Keys are atlantic-side: the polyline dips south through the Keys\n"
+        "      # before returning north to Cape Sable, so all Keys arc-lengths < s_cut.\n"
+        "      s_cut_km:\n"
+        f"        value: {round(s_cut_km, 2)}\n"
+        "        units: \"km\"\n"
+        "        source: \"Cape Sable (25.12N 81.10W) projected onto simplified FL coastline;"
+        " scaled to EPSG:3086 arc-length for direct comparison with s_samples_km."
+        " See calibration/track_stats.py.\"\n"
+        "      s_cut_frac:\n"
+        f"        value: {round(s_cut_km / total_arc_km, 4)}\n"
+        "        units: \"dimensionless\"\n"
+        "        source: \"s_cut_km / total_arc_length_km\"\n"
+        "      atlantic:\n"
+        "        n:\n"
+        f"          value: {n_atl}\n"
+        "          units: \"count\"\n"
+        "          source: \"HU landfalls s < s_cut_km (Atlantic coast + Keys)."
+        " Keys classified atlantic: arc-length dips south through Keys before Cape Sable.\"\n"
+        "        heading_mean_deg:\n"
+        f"          value: {a_circ['mean_deg']}\n"
+        "          units: \"degrees_clockwise_from_N\"\n"
+        "          source: \"Circular mean, atlantic regime (expected: NW sector ~300-340 deg)."
+        " See calibration/track_stats.py.\"\n"
+        "        heading_circ_std_deg:\n"
+        f"          value: {a_circ['circ_std_deg']}\n"
+        "          units: \"degrees\"\n"
+        "          source: \"Circular std, atlantic regime.\"\n"
+        "        heading_resultant_R:\n"
+        f"          value: {a_circ['resultant_R']}\n"
+        "          units: \"dimensionless\"\n"
+        "          source: \"Mean resultant length, atlantic regime.\"\n"
+        "        speed_dist:\n"
+        f"          value: \"{a_winner}\"\n"
+        "          units: \"scipy_dist_name\"\n"
+        "          source: \"MLE fit, atlantic regime. See calibration/track_stats.py.\"\n"
+        "        speed_params:\n"
+        f"          value: {fmt_p(a_params)}\n"
+        f"          units: \"scipy_{a_winner}_params_(shape_s,_loc,_scale)\"\n"
+        f"          source: \"MLE params; scipy.stats.{a_winner}(*speed_params). Scale in km/h.\"\n"
+        "        speed_mean_kmh:\n"
+        f"          value: {a_mean}\n"
+        "          units: \"km/h\"\n"
+        "          source: \"Sample mean, atlantic regime.\"\n"
+        "        speed_std_kmh:\n"
+        f"          value: {a_std}\n"
+        "          units: \"km/h\"\n"
+        "          source: \"Sample std (ddof=1), atlantic regime.\"\n"
+        "      gulf:\n"
+        "        n:\n"
+        f"          value: {n_gulf}\n"
+        "          units: \"count\"\n"
+        "          source: \"HU landfalls s >= s_cut_km (Gulf coast + panhandle, SW FL northward).\"\n"
+        "        heading_mean_deg:\n"
+        f"          value: {g_circ['mean_deg']}\n"
+        "          units: \"degrees_clockwise_from_N\"\n"
+        "          source: \"Circular mean, gulf regime (expected: NE sector ~20-60 deg)."
+        " See calibration/track_stats.py.\"\n"
+        "        heading_circ_std_deg:\n"
+        f"          value: {g_circ['circ_std_deg']}\n"
+        "          units: \"degrees\"\n"
+        "          source: \"Circular std, gulf regime.\"\n"
+        "        heading_resultant_R:\n"
+        f"          value: {g_circ['resultant_R']}\n"
+        "          units: \"dimensionless\"\n"
+        "          source: \"Mean resultant length, gulf regime.\"\n"
+        "        speed_dist:\n"
+        f"          value: \"{g_winner}\"\n"
+        "          units: \"scipy_dist_name\"\n"
+        "          source: \"MLE fit, gulf regime. See calibration/track_stats.py.\"\n"
+        "        speed_params:\n"
+        f"          value: {fmt_p(g_params)}\n"
+        f"          units: \"scipy_{g_winner}_params_(shape_s,_loc,_scale)\"\n"
+        f"          source: \"MLE params; scipy.stats.{g_winner}(*speed_params). Scale in km/h.\"\n"
+        "        speed_mean_kmh:\n"
+        f"          value: {g_mean}\n"
+        "          units: \"km/h\"\n"
+        "          source: \"Sample mean, gulf regime.\"\n"
+        "        speed_std_kmh:\n"
+        f"          value: {g_std}\n"
+        "          units: \"km/h\"\n"
+        "          source: \"Sample std (ddof=1), gulf regime.\"\n"
+    )
+
+    out_lines = []
+    inserted  = False
+    for line in lines:
+        if not inserted and line.startswith("vulnerability:"):
+            out_lines.append(block + "\n")
+            inserted = True
+        out_lines.append(line)
+
+    if not inserted:
+        raise RuntimeError("Could not find 'vulnerability:' anchor in config.")
+
+    with open(_CFG_PATH, "w", encoding="utf-8") as f:
+        f.writelines(out_lines)
+    print(f"Config updated -> {_CFG_PATH}")
+
+
+# ---------------------------------------------------------------------------
+# M: Regime wind-rose plot
+# ---------------------------------------------------------------------------
+
+def make_regime_plot(atl_hdgs, gulf_hdgs, a_circ, g_circ):
+    """Two wind roses side-by-side: Atlantic (NW cluster) vs Gulf (NE cluster)."""
+    fig = plt.figure(figsize=(14, 6))
+
+    panels = [
+        (atl_hdgs,  a_circ, "#1f77b4",
+         f"Atlantic regime\n(Atlantic coast + Keys, n={len(atl_hdgs)})"),
+        (gulf_hdgs, g_circ, "#ff7f0e",
+         f"Gulf regime\n(Gulf coast + Panhandle, n={len(gulf_hdgs)})"),
+    ]
+
+    for col, (hdgs, circ, color, title) in enumerate(panels):
+        ax = fig.add_subplot(1, 2, col + 1, projection="polar")
+        ax.set_theta_zero_location("N")
+        ax.set_theta_direction(-1)
+
+        h_shifted   = (np.asarray(hdgs) % 360.0 + 22.5) % 360.0
+        counts, _   = np.histogram(h_shifted, bins=np.arange(0, 361, 45))
+        centers_rad = np.radians(np.arange(0, 360, 45))
+
+        ax.bar(
+            centers_rad, counts, width=math.radians(43), bottom=0,
+            alpha=0.75, color=color, edgecolor="white", linewidth=0.7,
+        )
+
+        mu_rad = math.radians(circ["mean_deg"])
+        r_max  = max(counts) * 1.05 if max(counts) > 0 else 1.0
+        ax.annotate(
+            "", xy=(mu_rad, r_max), xytext=(0.0, 0.0),
+            arrowprops=dict(arrowstyle="-|>", color="#d62728", lw=2.0,
+                            mutation_scale=14),
+        )
+        ax.text(
+            mu_rad, r_max * 1.25,
+            f"circ. mean\n{circ['mean_deg']:.0f}°",
+            ha="center", va="center", fontsize=8.5,
+            color="#d62728", fontweight="bold",
+        )
+
+        max_c     = int(max(counts)) if max(counts) > 0 else 1
+        tick_step = 5 if max_c <= 30 else 10
+        yticks    = list(range(tick_step, max_c + tick_step, tick_step))
+        ax.set_yticks(yticks)
+        ax.set_yticklabels([str(t) for t in yticks], fontsize=7, color="#555555")
+        ax.set_rlabel_position(112)
+
+        compass = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+        ax.set_xticks(centers_rad)
+        ax.set_xticklabels(compass, fontsize=9)
+        ax.set_title(title, fontsize=10, pad=18)
+
+    fig.suptitle(
+        "FL Landfall Heading by Regime  |  HURDAT2 1851-2024  |  Step 1.5a Part 2",
+        fontsize=11, y=1.01,
+    )
+    fig.tight_layout()
+    os.makedirs(os.path.dirname(_OUT_PLOT_REG), exist_ok=True)
+    fig.savefig(_OUT_PLOT_REG, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Plot saved -> {_OUT_PLOT_REG}")
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -509,9 +861,58 @@ if __name__ == "__main__":
     print("\nGenerating plot ...")
     make_plot(headings, speeds, circ["mean_deg"], winner, all_fits)
 
+    # -------------------------------------------------------------------
+    # Regime-conditioned extension
+    # -------------------------------------------------------------------
     print()
     print("=" * 60)
-    print("track_stats.py complete")
+    print("Regime-conditioned analysis (Atlantic vs Gulf)")
+    print("=" * 60)
+
+    print("\nProjecting Cape Sable onto simplified FL coastline ...")
+    s_cut_km, d_nearest_km = compute_s_cut()
+    print(f"  s_cut_km        = {s_cut_km:.2f} km  (EPSG:3086-scaled)")
+    print(f"  s_cut_frac      = {s_cut_km / _TOTAL_EPSG3086_KM:.4f} of total arc ({_TOTAL_EPSG3086_KM} km)")
+    print(f"  d_nearest_km    = {d_nearest_km:.2f} km  (snap distance, haversine)")
+
+    # Load s_samples_km from config (read-only yaml — no round-trip write)
+    with open(_CFG_PATH, encoding="utf-8") as _f:
+        _cfg = yaml.safe_load(_f)
+    s_samples_km = _cfg["hazard"]["landfall_geography"]["s_samples_km"]["value"]
+    print(f"\nLoaded {len(s_samples_km)} s_samples from config "
+          f"(expected n_used={n_used})")
+
+    print("\nClassifying storms by regime ...")
+    atl_recs, gulf_recs = classify_regimes(records, s_samples_km, s_cut_km)
+    n_atl  = len(atl_recs)
+    n_gulf = len(gulf_recs)
+    print(f"  n_atlantic = {n_atl}")
+    print(f"  n_gulf     = {n_gulf}")
+    print(f"  total      = {n_atl + n_gulf}  (should equal n_used={n_used})")
+
+    print("\nPer-regime circular statistics and speed MLE:")
+    a_circ, a_winner, a_params, a_speeds = per_regime_stats(atl_recs,  "Atlantic regime")
+    g_circ, g_winner, g_params, g_speeds = per_regime_stats(gulf_recs, "Gulf regime    ")
+
+    print("\nSanity check (heading sectors):")
+    sanity_check_regimes(a_circ, g_circ)
+
+    print(f"\nUpdating {_CFG_PATH} with by_regime block ...")
+    write_regime_config(
+        s_cut_km, _TOTAL_EPSG3086_KM,
+        a_circ, a_winner, a_params, a_speeds, n_atl,
+        g_circ, g_winner, g_params, g_speeds, n_gulf,
+    )
+
+    print("\nGenerating regime plot ...")
+    atl_hdgs  = [r["heading_deg"] for r in atl_recs]
+    gulf_hdgs = [r["heading_deg"] for r in gulf_recs]
+    make_regime_plot(atl_hdgs, gulf_hdgs, a_circ, g_circ)
+
+    print()
+    print("=" * 60)
+    print("track_stats.py complete (global + regime-conditioned)")
     print("=" * 60)
     print("Next: Step 1.5b -- update model/hazard.py to use calibrated")
-    print("  geography (s_samples_km KDE) + track stats (heading, speed).")
+    print("  geography (s_samples_km KDE) + track stats (heading, speed")
+    print("  conditioned on regime: atlantic NW / gulf NE).")
