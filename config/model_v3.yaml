@@ -28,11 +28,11 @@ frequency:
     value: [[74, 95], [96, 110], [111, 129], [130, 156], [157, 185]]
     units: "mph_sustained"
     source: "Saffir-Simpson"
-  # Illustrative FL landfall weights; loosely calibrated to historical frequencies.
+  # Superseded by intensity.vmax_kt truncated-lognormal (Step 1.4); retained for reference only.
   category_weights:
     value: [0.40, 0.25, 0.18, 0.13, 0.04]
     units: "probability"
-    source: "illustrative (v2)"
+    source: "superseded by intensity.vmax_kt truncated-lognormal (Step 1.4); retained for reference only, not used in sampling"
 
 intensity:
   distribution:
@@ -70,14 +70,14 @@ hazard:
       - [27.8, -82.75]   # 10
       - [28.2, -82.75]   # 11  Gulf N
     units: "[lat_deg, lon_deg]"
-    source: "illustrative (v2)"
+    source: "superseded by hazard.landfall_geography KDE (Step 1.5); retained only for the __main__ reference plot in hazard.py"
   # 11 weights for 11 segments.  Coupled to coast_polyline: must have len-1 entries.
   # Higher weights on SE (segments 2-3) and SW (segments 7-8) to reflect
   # observed FL landfall climatology.
   coast_segment_weights:
     value: [1.0, 1.5, 2.5, 3.0, 1.5, 1.0, 1.0, 2.5, 2.0, 1.5, 1.0]
     units: "relative_weight"
-    source: "illustrative (v2)"
+    source: "superseded by hazard.landfall_geography KDE (Step 1.5); no longer used in sampling"
   step_km:
     value: 30.0
     units: "km"
