@@ -116,8 +116,13 @@ _VW_B_MAX            = float(_vwcfg.b.b_max)
 
 # WPR pass-through — forward-compute Δp from Vmax (already in mph from sample_intensity).
 # _WPR_B_EXP named to avoid shadowing the local variable b in sample_storm.
-_WPR_A     = float(_mcfg.wind_pressure.a)
-_WPR_B_EXP = float(_mcfg.wind_pressure.b)
+_WPR_A         = float(_mcfg.wind_pressure.a)
+_WPR_B_EXP     = float(_mcfg.wind_pressure.b)
+_WPR_SIGMA_LOG = float(_mcfg.wind_pressure.sigma_log)   # 0.2458 — calibrated scatter (log-space)
+_WPR_RESIDUAL  = str(_mcfg.hazard.physics.wpr_residual)  # "on" | "off"
+assert _WPR_RESIDUAL in {"on", "off"}, (
+    f"hazard.physics.wpr_residual must be 'on' or 'off'; got {_WPR_RESIDUAL!r}"
+)
 
 # ---------------------------------------------------------------------------
 # Calibrated landfall geography + regime parameters  (Step 1.5b)
@@ -362,13 +367,19 @@ def sample_storm(rng):
     """
     Sample one complete storm (track + metadata).
 
-    RNG discipline (Phase 2):
+    RNG discipline (Phase 2 / Step 3.0b):
         Legacy stream draws (in order): sample_landfall x2 (integer+normal),
         vonmises, gamma, sample_intensity, then rng.uniform(30,55) ONLY when
-        rmax_method='uniform'.  All new physics (V&W Rmax error, B error) draw
-        from sub_rng, which is spawned UNCONDITIONALLY via rng.spawn(1)[0].
-        rng.spawn() uses SeedSequence counters — it does NOT consume variates
-        from rng, so the legacy stream is bit-identical when switches are legacy.
+        rmax_method='uniform'.  All new physics draw from dedicated substreams:
+          vw_rng  = rng.spawn(1)[0]: V&W Rmax error (draw 1) and B error (draw 2).
+                    Same SeedSequence slot per storm as the former sub_rng —
+                    bit-identical to pre-3.0b baseline.
+          wpr_rng = vw_rng.spawn(1)[0]: NESTED child of vw_rng. Consuming from
+                    wpr_rng does NOT affect rng's spawn-slot counter or vw_rng's
+                    bitgenerator state. 1 draw when wpr_residual='on';
+                    spawned-and-unused when 'off'.
+        spawn() uses SeedSequence counters and does NOT consume bitgenerator
+        variates from the parent, so all legacy streams are unperturbed.
 
     Returns
     -------
@@ -391,27 +402,37 @@ def sample_storm(rng):
 
     category, vmax = sample_intensity(rng)                    # rng draw 5 (uniform inside)
 
-    # Spawn per-storm substream UNCONDITIONALLY. rng.spawn() derives children via
-    # SeedSequence counters and does NOT consume variates from rng — the legacy
-    # stream is entirely unperturbed regardless of which physics switches are active.
-    sub_rng = rng.spawn(1)[0]
+    # Spawn vw_rng from rng exactly as before (same SeedSequence slot per storm).
+    # Then spawn wpr_rng as a NESTED child of vw_rng — this increments vw_rng's
+    # SeedSequence counter only, not rng's, so all per-storm spawn slots stay
+    # identical to pre-3.0b. vw_rng.spawn() does NOT consume bitgenerator variates
+    # from vw_rng; Rmax/B draws are therefore bit-identical to pre-3.0b baseline.
+    vw_rng  = rng.spawn(1)[0]
+    wpr_rng = vw_rng.spawn(1)[0]
 
     # Δp from calibrated WPR: Δp = a · Vmax_mph^b_exp.
     # vmax is already in mph (sample_intensity calls kt_to_mph).
     dp_mb = float(_WPR_A * vmax ** _WPR_B_EXP)
 
+    if _WPR_RESIDUAL == "on":
+        # Multiplicative lognormal scatter: Δp = Δp_det · exp(ε), ε ~ N(0, sigma_log²).
+        # Jensen bias: E[exp(ε)] = exp(sigma_log²/2) ≈ 1.031 → mean Δp +3% upward.
+        # Propagates into Rmax and B via the V&W causal chain only (not Holland amplitude).
+        dp_mb = dp_mb * float(np.exp(wpr_rng.normal(0.0, _WPR_SIGMA_LOG)))
+    # wpr_rng spawned-and-unused on 'off' path — RNG discipline per CLAUDE.md.
+
     if _RMAX_METHOD == "uniform":
         # Legacy draw: same stream position as pre-V&W implementation (rng draw 6).
-        # sub_rng is intentionally unused on this path — the unconditional spawn
+        # vw_rng is intentionally unused on this path — the unconditional spawn
         # ensures the legacy stream is unaffected by the existence of V&W physics.
         rmax_km = float(rng.uniform(_RMAX_MIN_KM, _RMAX_MAX_KM))   # rng draw 6
     else:  # "vickery_wadhera"
-        rmax_km = _vw_rmax_sample(dp_mb, lat_lf, sub_rng)           # sub_rng draw 1
+        rmax_km = _vw_rmax_sample(dp_mb, lat_lf, vw_rng)            # vw_rng draw 1
 
     if _B_METHOD == "constant":
         b = 0.0
     else:  # "vickery_wadhera"
-        b = _vw_b_sample(rmax_km, lat_lf, sub_rng)                  # sub_rng draw 2 (or 1 if rmax=uniform)
+        b = _vw_b_sample(rmax_km, lat_lf, vw_rng)                   # vw_rng draw 2 (or 1 if rmax=uniform)
 
     track = build_track(lat_lf, lon_lf, vmax, heading_deg, rmax_km, speed_kmh)
 

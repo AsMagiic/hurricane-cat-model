@@ -336,6 +336,10 @@ hazard:
       value: "on"
       units: "switch"
       source: "Step 3.0a. Upper truncation of landfall intensity distribution at intensity.cap_kt. 'off': unbounded above, bit-identical to pre-3.0a v3 baseline (_INT_P_UB=1.0, same float expression). 'on': renormalized truncation; _INT_P_UB=Phi((ln(cap_kt)-mu_log)/sigma_log)~0.9961, so p_samp in [_INT_P_LB, _INT_P_UB]. Env-var override: CATMODEL_INTENSITY_CAP. See model/hazard.py."
+    wpr_residual:
+      value: "off"
+      units: "switch"
+      source: "Step 3.0b. Stochastic WPR scatter: Δp = a·Vmax^b · exp(ε), ε ~ N(0, sigma_log²), sigma_log from wind_pressure.sigma_log (0.2458). 'off': deterministic Δp = a·Vmax^b, bit-identical to v3+3.0a baseline (Rmax/B streams unaffected; spawn architecture unchanged). 'on': adds lognormal multiplicative noise on Δp, propagating into Rmax and B via the V&W causal chain. Jensen bias: E[exp(ε)] = exp(sigma_log²/2) ≈ 1.031, so mean Δp shifts +3% upward (mean Rmax slightly smaller, tail fattened). Does NOT touch the Holland amplitude (anchored to Vmax, Phase-2 decision). NOT production-ready alone: at high ε near the 165 kt cap, V&W extrapolates to sub-physical Rmax (<8 km); a physical Rmax floor is deferred to Step 3.0c. Ships off by default. Env-var override: CATMODEL_WPR_RESIDUAL. See model/hazard.py."
     kd_alpha:
       value: 0.095
       units: "h^-1"

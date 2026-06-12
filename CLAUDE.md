@@ -22,7 +22,9 @@ This branch targets v3 — do not break v2 behaviour without a clear decision lo
    V&W Rmax — see Phase 2 outcomes below
 3. **Secondary uncertainty** — Beta-distributed damage ratios per event;
    propagate epistemic uncertainty into EP bands. CURRENT PHASE — Step 3.0a
-   (MPI intensity cap) DONE; next: 3.0b stochastic WPR residual, then 3.1+.
+   (MPI intensity cap) DONE; Step 3.0b (stochastic WPR residual) DONE (ships off
+   by default, blocked on 3.0c Rmax floor); next: 3.0c physical Rmax floor (~8 km),
+   then 3.1 Beta-distributed damage ratios.
 4. **Exposure & financials** — OED exposure format (LocPerilsCovered, etc.);
    ELT and YLT outputs; reinstatements on XoL layers
 5. **Backtesting** — reproduce Andrew 1992 and Ian 2022 industry loss estimates
@@ -53,6 +55,9 @@ Python 3.11+, numpy, pandas, matplotlib, scipy, pyyaml, pytest
 - 2026-06-12 — waterfall analysis runs must write to an isolated directory (results/waterfall/), never production summary_metrics.csv — implemented in Step 3.0a: `--results-dir results/waterfall` passed to run_all.py subprocesses; regression guard asserts prod mtime unchanged after sweep
 - 2026-06-12 — .gitignore `results/` changed to `results/*` — directory-level ignore made the `!results/summary_metrics.csv` negation dead letter (file was tracked only by legacy status)
 - 2026-06-12 — Step 3.0a DoD CLOSED — deep-tail audit complete (seed 42, 100k years, real runs, cap=off bit-identical to pre-3.0a baseline). OEP deltas at 1-in-100/250/500/1000: −0.21M/−0.27M/+0.25M/+0.54M; AEP deltas: −0.30M/−0.05M/−0.95M/−0.85M. OEP sign reverses at 1-in-500/1000 via V&W Rmax coupling (capped storms have 5–18× larger Rmax, replacing sub-physical compact artifacts; 1,619/100k years have cap=on > cap=off, max excess 150M; +0.25M/+0.54M within bootstrap MC noise, CIs overlap). README subsection corrected (correct mechanism: V&W Rmax, not probability-mass redistribution). Next: Step 3.0b (stochastic WPR residual).
+- 2026-06-12 — Step 3.0b: nested spawn architecture is the canonical pattern for adding a new stochastic physics component without perturbing existing streams. `vw_rng = rng.spawn(1)[0]` (same slot per storm as before); `wpr_rng = vw_rng.spawn(1)[0]` (nested child — vw_rng.spawn() does not consume vw_rng's bitgenerator variates). spawn(2) from the parent RNG does NOT work — it increments the parent's n_children_spawned by 2 per storm, so storm N's children use different slots than before. Nested spawn from a child is the correct pattern.
+- 2026-06-12 — Step 3.0b DoD CLOSED — stochastic WPR residual implemented and tested. Ships off by default (wpr=off bit-identical to 3.0a baseline; _V3_ANCHORS unchanged). wpr=on effect: AAL −0.259M (−2.8%), OEP-100 −3.1M, OEP-250 −0.4M, OEP-500 +4.8M, OEP-1000 +10.4M. Sign reverses between 250 and 500 — variance dominates at deep tail. Sub-physical Rmax (< 8 km): 153/100k storms (0.153%, min 1.2 km) under wpr=on. wpr=on NOT production-ready: deferred to Step 3.0c physical Rmax floor. Config 6 added to waterfall.
+- 2026-06-12 — Step 3.0c: physical Rmax floor (~8 km observational limit, no observed TC has Rmax < 8 km) — V&W extrapolates to sub-physical Rmax at high Δp; the WPR residual (Step 3.0b) makes this material for high-ε draws near the 165 kt cap (153/100k storms, min Rmax 1.2 km). MEDIUM priority (upgrade from low). Required before wpr=on is production-ready.
 
 ## Phase 1 calibration outcomes (HURDAT2) — full rationale in config/model_v3.yaml `source:` fields
 - **Frequency**: λ=0.6576/yr — Poisson GLM (log link), single covariate standardized AMO
@@ -116,14 +121,45 @@ dir, regression guard in main()); `run_all.py --results-dir` and
   refine by scaling with V_sym/Vmax if ever needed).
 - Coriolis latitude frozen at landfall along track (~10% f variation over
   300 km; trivial fix next time wind_field.py is touched — track carries lat_c).
-- MPI cap also bounds the V&W Rmax regression to its valid range — uncapped, the
-  lognormal tail extrapolates V&W to Δp>200 mb where it returns sub-physical Rmax
-  (1–6 km). Relevant to 3.0b WPR residual: the wind-pressure relationship and the
-  coupled Rmax share a validity domain.
+- MPI cap bounds the uncapped lognormal Δp tail but does NOT bound Δp when the WPR
+  residual (wpr=on) amplifies it via high-ε draws. Under wpr=on: 153/100k storms have
+  Rmax < 8 km (min 1.2 km) — the sub-physical Rmax artefact is reintroduced. DEFERRED
+  to Step 3.0c: physical Rmax floor (~8 km). MEDIUM priority (was low for 3.0a, elevated
+  by 3.0b making it material).
+
+## Step 3.0b outcomes — DONE 2026-06-12
+Stochastic WPR residual: Δp = a·Vmax^b · exp(ε), ε ~ N(0, σ²), σ=0.2458.
+Switch: `wpr_residual` off|**off-default** (off=bit-identical to 3.0a; on=lognormal ε activated).
+wpr=off is production default; _V3_ANCHORS unchanged (Config 5, cap=on, wpr absent → defaults off).
+
+**v3+3.0b baseline (seed 42, 100k years, wpr=off = 3.0a baseline unchanged):**
+Same as 3.0a: AAL gross 9,151,137 | OEP-100 113.23M | OEP-250 146.88M | AEP-100 122.39M | AEP-250 158.69M.
+
+**wpr=on diagnostic (seed 42, 100k years):**
+AAL gross 8.892M (−0.259M, −2.8%); OEP deltas: −3.1M/−0.4M/+4.8M/+10.4M at 1-in-100/250/500/1000;
+AEP deltas: −3.0M/+0.1M/+4.0M/+11.7M. Jensen bias drives AAL down (mean Δp +3.1%, mean Rmax decreases);
+variance inflation dominates at 1-in-500/1000 (low-ε draws → very large Rmax → large footprint losses).
+Sub-physical Rmax: 153/100k storms (0.153%) have Rmax < 8 km under wpr=on (min 1.2 km).
+Config 6 (wpr=on) added to waterfall; self-check still passes for Config 5 (diff=0.0000).
+RNG: nested spawn (`wpr_rng = vw_rng.spawn(1)[0]`) — see RNG discipline section above.
+tests/test_wpr_residual.py: 6 tests (bit-identical sequence, ε stats, Jensen bias, substream independence, draw discipline).
 
 ## RNG discipline (Phase 2 onward — MANDATORY for all new stochastic physics)
-The legacy per-storm RNG stream is FROZEN. All new stochastic components
-(Holland B, Rmax error term, and anything added in Phase 3+) draw from a
-substream spawned UNCONDITIONALLY per storm (`rng.spawn(1)[0]`), so toggling
-any physics switch off reproduces the baseline stream bit-for-bit. Each
-sampler must consume a FIXED number of draws per call regardless of branch.
+The legacy per-storm RNG stream is FROZEN. All new stochastic components draw
+from substreams spawned UNCONDITIONALLY per storm. Spawn architecture (Step 3.0b):
+
+```
+vw_rng  = rng.spawn(1)[0]          # V&W Rmax + B draws; same slot per storm as legacy sub_rng
+wpr_rng = vw_rng.spawn(1)[0]       # nested child of vw_rng; dedicated to WPR ε draw
+```
+
+**Critical constraint:** Do NOT call `rng.spawn(N)` for N > 1 within a single storm. Each
+`rng.spawn(1)` call increments `rng`'s SeedSequence `n_children_spawned` by 1. Calling
+`rng.spawn(2)` in one storm shifts ALL subsequent storm spawn slots by +1, breaking bit-
+identity. The nested-spawn pattern (`child.spawn(1)[0]`) uses `child`'s SeedSequence counter,
+not `rng`'s — so `rng`'s counter stays at the pre-3.0b rate (exactly 1 spawn per storm).
+
+**For the next new stochastic component (3.1+):** use `vw_rng.spawn(2)` to split into
+`vw_rng.children[0]` (existing V&W draws) and `vw_rng.children[1]` (new component) —
+OR add another level of nesting from `wpr_rng`. One child per noise source; each
+spawned unconditionally; each consuming a FIXED number of draws per call.

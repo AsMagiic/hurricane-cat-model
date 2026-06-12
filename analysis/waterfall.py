@@ -51,6 +51,7 @@ _BM = "CATMODEL_B_METHOD"
 _AS = "CATMODEL_TRANSLATION_ASYMMETRY"
 _DC = "CATMODEL_DECAY_METHOD"
 _IC = "CATMODEL_INTENSITY_CAP"
+_WR = "CATMODEL_WPR_RESIDUAL"
 
 MAIN_CONFIGS = [
     ("Config 0 -- v2 baseline",
@@ -65,6 +66,9 @@ MAIN_CONFIGS = [
      {_WP: "holland",  _RM: "vickery_wadhera", _BM: "vickery_wadhera", _AS: "on",  _DC: "kaplan_demaria", _IC: "off"}),
     ("Config 5 -- +Intensity cap (v3+3.0a)",
      {_WP: "holland",  _RM: "vickery_wadhera", _BM: "vickery_wadhera", _AS: "on",  _DC: "kaplan_demaria", _IC: "on"}),
+     # _WR absent -> defaults off; Config 5 is the production anchor, _V3_ANCHORS unchanged.
+    ("Config 6 -- +WPR residual (3.0b)",
+     {_WP: "holland",  _RM: "vickery_wadhera", _BM: "vickery_wadhera", _AS: "on",  _DC: "kaplan_demaria", _IC: "on", _WR: "on"}),
 ]
 
 # One-at-a-time sensitivity: each component isolated from the v2 baseline.
@@ -214,7 +218,7 @@ def _print_and_return_table(cumulative, iso_labels, iso_results, c0, c4):
     total = {m: c4[m] - c0[m] for m in METRICS}
     print(dashes)
     print(
-        f"  {'Total v2 -> v3':<28}"
+        f"  {'Total v2->v3+3.0a (prod)':<28}"
         f"{'':>10}{_fmt_d(total['aal']):>10}"
         f"  {'':>10}{_fmt_d(total['oep100']):>11}"
         f"  {'':>10}{_fmt_d(total['oep250']):>11}"
@@ -320,9 +324,10 @@ _STEP_COLORS = [
     "#55A868",  # +Asymmetry
     "#C44E52",  # +Decay (K-D)
     "#9B59B6",  # +Intensity cap (MPI)
+    "#17BECF",  # +WPR residual (3.0b)
 ]
-_STEP_XLABELS = ["v2\n(base)", "+Rmax\nV&W", "+Holland\n& B", "+Asym", "+Decay", "+Cap\n(MPI)"]
-_LEGEND_LABELS = ["v2 baseline", "+Rmax V&W", "+Holland & B", "+Asymmetry", "+Decay (K-D)", "+Intensity cap (MPI)"]
+_STEP_XLABELS = ["v2\n(base)", "+Rmax\nV&W", "+Holland\n& B", "+Asym", "+Decay", "+Cap\n(MPI)", "+WPR\n(3.0b)"]
+_LEGEND_LABELS = ["v2 baseline", "+Rmax V&W", "+Holland & B", "+Asymmetry", "+Decay (K-D)", "+Intensity cap (MPI)", "+WPR residual (3.0b)"]
 
 
 def _plot_waterfall(cumulative, out_path):
@@ -409,7 +414,7 @@ def main():
 
     print()
     print("=" * 60)
-    print("  Attribution Waterfall  --  10 subprocess configs")
+    print("  Attribution Waterfall  --  11 subprocess configs")
     mode = "--quick (1k years, MC noise expected)" if args.quick else "full 100k years"
     print(f"  Mode: {mode}")
     print("=" * 60)
@@ -421,7 +426,7 @@ def main():
     main_results = []
     for label, config_env in MAIN_CONFIGS:
         main_results.append(_run_config(label, config_env, run_all_args))
-    c0, c1, c2, c3, c4, c5 = main_results  # noqa: F841 (c2-c4 unused directly but kept for clarity)
+    c0, c1, c2, c3, c4, c5, c6 = main_results  # noqa: F841 (c2-c4 unused directly but kept for clarity)
 
     # -----------------------------------------------------------------------
     # 4 sensitivity configs  (S1 = c1, no extra subprocess)
@@ -476,9 +481,12 @@ def main():
     # Build attribution and print table
     # -----------------------------------------------------------------------
     cumulative = list(zip(
-        ["v2 baseline", "+Rmax V&W", "+Holland & B", "+Asymmetry", "+Decay", "+Cap (MPI)"],
+        ["v2 baseline", "+Rmax V&W", "+Holland & B", "+Asymmetry", "+Decay", "+Cap (MPI)", "+WPR residual (3.0b)"],
         main_results,
     ))
+    # Note: _print_and_return_table receives c5 (not c6) as its last arg so that
+    # "Total v2 -> v3" = c5 - c0 (production baseline).  The WPR row appears in the
+    # cumulative table; its isolated delta (c6 - c5) is visible from the dAAL/dOEP columns.
     iso_labels  = ["+Rmax only (=C1)", "+Holland&B only(*)", "+Asymmetry only", "+Decay only", "+Cap only"]
     iso_results = [s1_res, s2_res, s3_res, s4_res, s5_res]
 

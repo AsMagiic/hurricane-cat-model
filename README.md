@@ -145,6 +145,38 @@ The aggregate (AEP) effect is uniformly downward across all return periods. The 
 
 The primary benefit of the MPI ceiling is eliminating the sub-physical compact-storm artefacts and bounding the V&W Rmax regression to its valid range — a prerequisite for credible TVaR at the 1-in-1000 return period.
 
+### Wind-pressure scatter (Step 3.0b)
+
+The WPR fitted to CONUS landfalls (Δp = a · Vmax^b) has calibrated scatter: the log-space residuals are Gaussian with σ = 0.2458 (n=85). In the base model this scatter is discarded — each storm's Δp is the deterministic OLS prediction. Step 3.0b activates the residual behind a config switch (`wpr_residual: off|on`, default **off**):
+
+```
+Δp = a · Vmax^b · exp(ε),   ε ~ N(0, σ²),   σ = 0.2458
+```
+
+**Propagation path.** The residual touches only the Δp input. Δp flows forward into Vickery–Wadhera Rmax (size) and B (peakedness), so the scatter in the WPR translates into correlated scatter in the storm's physical dimensions — broader or narrower core, sharper or flatter profile. The Holland amplitude remains anchored to Vmax (Phase 2 anchoring decision).
+
+**Jensen bias.** Because ε is log-additive, the mean Δp shifts upward by a multiplicative factor exp(σ²/2) ≈ 1.031 — a +3.1% bias relative to the deterministic WPR. Since Rmax decreases with Δp (V&W eq. 13), the mean storm size shrinks slightly; but the variance of storm size increases, fattening the tail.
+
+**Before/after (seed=42, 100k years, all Phase 2 + cap=on switches):**
+
+| Metric | wpr=off (baseline) | wpr=on | Δ |
+|---|---:|---:|---:|
+| AAL gross (M) | 9.151 | 8.892 | −0.259 |
+| OEP-100 (M) | 113.23 | 110.10 | −3.13 |
+| OEP-250 (M) | 146.88 | 146.50 | −0.38 |
+| OEP-500 (M) | 169.27 | 174.09 | **+4.81** |
+| OEP-1000 (M) | 191.08 | 201.44 | **+10.36** |
+| AEP-100 (M) | 122.39 | 119.44 | −2.95 |
+| AEP-250 (M) | 158.69 | 158.74 | +0.05 |
+| AEP-500 (M) | 181.52 | 185.54 | +4.02 |
+| AEP-1000 (M) | 204.23 | 215.92 | +11.69 |
+
+The AAL decrease (−0.259M, −2.8%) reflects the Jensen-driven Rmax contraction: storms are more compact on average, reaching fewer portfolio locations. The tail inversion — losses increase at 1-in-500/1000 — reflects variance: low-ε draws produce very broad storms with unusually large footprints.
+
+**Known limitation: sub-physical Rmax.** With wpr=on, high-ε draws near the 165 kt cap can push Δp well above 200 mb, driving V&W Rmax below the 8 km physical observational floor. In the 100k-year catalog, 153 storms (0.153%) have Rmax < 8 km under wpr=on (min observed: 1.2 km). These sub-physical compact storms produce near-zero loss (the wind core misses nearly every portfolio location), but they are a known artefact of applying the lognormal WPR scatter beyond the valid range of the V&W regression. The 3.0a MPI cap bounds Vmax but does not bound Δp when ε can amplify it. **This is why `wpr_residual` ships off by default: wpr=on is not production-ready until a physical Rmax floor (~8 km observational limit) is imposed.** This floor is deferred to Step 3.0c.
+
+**RNG architecture.** The ε draw uses a dedicated substream `wpr_rng`, spawned as a nested child of the V&W substream: `vw_rng = rng.spawn(1)[0]`; `wpr_rng = vw_rng.spawn(1)[0]`. This preserves bit-identical Rmax/B draws when wpr=off (same `vw_rng` slot per storm), and the parent `rng` stream is entirely unaffected (spawn uses SeedSequence counters, not bitgenerator state).
+
 ### Attribution waterfall — what each component contributes
 
 Phase 1 deferred a fine-grained, component-by-component attribution to Phase 2, because the wind-physics comparisons required per-component configuration switches as infrastructure anyway. With every component behind a switch (each verified to reproduce the baseline bit-for-bit when off), the full v2→v3 change decomposes cleanly. All runs share seed 42, so the deltas are physics, not Monte Carlo noise.
