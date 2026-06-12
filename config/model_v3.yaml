@@ -316,6 +316,14 @@ hazard:
       value: 1.15
       units: "kg/m^3"
       source: "Standard tropical marine boundary layer density (NHC/SLOSH, 1.15 kg/m³ at sea level 25°C). Used in Holland (1980) gradient-wind pressure term: (B/rho)*x*dp_pa*exp(-x). See model/wind_field.py."
+    translation_asymmetry:
+      value: "on"
+      units: "switch"
+      source: "Paso 2.2. Schwerdt-Ho-Watkins (1979) / HAZUS-MH Hurricane Technical Manual (FEMA 2012) forward-motion asymmetry: V_total = max(0, V_sym + a*Vt_mph*sin(beta_loc - beta_heading)). 'on'/'off'. Default 'off' for backward compatibility; with 'off', output is bit-identical to the symmetric Holland baseline. See model/wind_field.py."
+    asymmetry_fraction:
+      value: 0.5
+      units: "dimensionless"
+      source: "Paso 2.2. Surface-level asymmetry fraction a in V_total = V_sym + a*Vt_mph*sin(beta_loc - beta_heading). a=0.5 is the boundary-layer-reduced value (Powell 1980 observations, consistent with HAZUS-MH Hurricane Technical Manual FEMA 2012); full gradient-wind asymmetry is a=1.0 (Schwerdt-Ho-Watkins 1979 SPH original). See model/wind_field.py."
 
 vickery_wadhera:
   # Rmax regression (eq. 13 in ERDC TR-08-06): ln(Rmax_km) = intercept + dp2_coeff*Δp² + lat_coeff*ψ + ε

@@ -155,6 +155,8 @@ def run_simulation(n_years, seed=SEED):
                     b=meta["b"],
                     dp_mb=meta["dp_mb"],
                     lat=meta["landfall_lat"],
+                    heading_deg=meta["heading_deg"],
+                    vt_kmh=meta["translation_speed_kmh"],
                 ),
                 lats, lons,
             )

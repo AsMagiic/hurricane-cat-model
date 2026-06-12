@@ -424,6 +424,8 @@ if __name__ == "__main__":
             b=demo_meta["b"],
             dp_mb=demo_meta["dp_mb"],
             lat=demo_meta["landfall_lat"],
+            heading_deg=demo_meta["heading_deg"],
+            vt_kmh=demo_meta["translation_speed_kmh"],
         ),
         lats, lons,
     )

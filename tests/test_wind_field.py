@@ -13,9 +13,11 @@ from model.wind_field import (
     StormParams,
     _holland,
     _rankine,
+    _apply_asymmetry,
     _validate_physics_config,
     wind_at_locations,
     _RHO,
+    _ASYM_FRAC,
 )
 import model.wind_field as _wf_mod
 from model_config     import load_model_cfg
@@ -68,6 +70,7 @@ class TestWindAtLocations:
     @pytest.fixture(autouse=True)
     def _use_rankine(self, monkeypatch):
         monkeypatch.setattr(_wf_mod, "_WIND_PROFILE", "rankine")
+        monkeypatch.setattr(_wf_mod, "_ASYMMETRY_ON", False)
 
     # Reference track: 3 steps.
     TRACK = np.array([
@@ -306,6 +309,7 @@ class TestHollandVsRankineSwitch:
     def test_rankine_switch_bit_identical(self, monkeypatch):
         """With wind_profile='rankine', wind_at_locations reproduces _rankine exactly."""
         monkeypatch.setattr(_wf_mod, "_WIND_PROFILE", "rankine")
+        monkeypatch.setattr(_wf_mod, "_ASYMMETRY_ON", False)
         sp     = StormParams(rmax=self.RMAX)
         result = wind_at_locations(self.TRACK, sp, self.LATS, self.LONS)
         assert np.array_equal(result, self._rankine_expected())
@@ -313,6 +317,7 @@ class TestHollandVsRankineSwitch:
     def test_holland_differs_from_rankine(self, monkeypatch):
         """With wind_profile='holland', the result differs from Rankine (profile shapes differ)."""
         monkeypatch.setattr(_wf_mod, "_WIND_PROFILE", "holland")
+        monkeypatch.setattr(_wf_mod, "_ASYMMETRY_ON", False)
         sp_holland = StormParams(rmax=self.RMAX, b=1.2, dp_mb=60.0, lat=25.0)
         sp_rankine = StormParams(rmax=self.RMAX)
         result_h   = wind_at_locations(self.TRACK, sp_holland, self.LATS, self.LONS)
@@ -341,3 +346,171 @@ class TestHollandConfigGuard:
     def test_holland_vickery_wadhera_ok(self):
         """wind_profile='holland' + b_method='vickery_wadhera' is valid."""
         _validate_physics_config("holland", "vickery_wadhera")   # must not raise
+
+
+# ---------------------------------------------------------------------------
+# Phase 2.2 — Translation asymmetry
+# ---------------------------------------------------------------------------
+
+class TestAsymmetry:
+    """
+    Tests for _apply_asymmetry() and its integration into wind_at_locations.
+
+    Storm geometry used throughout:
+        Track moving DUE NORTH along lon = -80.5 (heading_deg = 0.0).
+        RIGHT side = EAST (bearing ~90°) — should get +a·Vt enhancement.
+        LEFT  side = WEST (bearing ~270°) — should get -a·Vt reduction.
+    """
+
+    RMAX  = 40.0   # km
+    VMAX  = 120.0  # mph
+    B     = 1.2
+    DP_MB = 60.0   # mb
+    LAT   = 25.0   # degrees
+
+    # North-moving track along lon=-80.5; step spacing ~55.6 km (0.5° lat).
+    TRACK = np.array([
+        [25.0, -80.5, 120.0,   0.0],
+        [25.5, -80.5,  96.0,  55.6],
+        [26.0, -80.5,  72.0, 111.2],
+    ])
+
+    def test_mirror_not_flipped(self):
+        """
+        THE mandatory mirror test: storm moving north (heading=0°).
+        East location (bearing=90°) must have HIGHER corrected wind than
+        west location (bearing=270°) when both have the same symmetric wind.
+
+        sin(90°-0°)=+1 -> east enhanced; sin(270°-0°)=-1 -> west reduced.
+        A sign error on (bearing-heading) or a wrong definition of 'right'
+        would mirror the asymmetry, putting the strong side on the west.
+        """
+        v_sym   = np.array([80.0, 80.0])
+        brg     = np.array([90.0, 270.0])   # east, west
+        vt_mph  = 20.0
+        result  = _apply_asymmetry(v_sym, brg, 0.0, vt_mph, _ASYM_FRAC)
+        assert result[0] > result[1], (
+            f"MIRROR BUG: east (right) wind {result[0]:.2f} mph must exceed "
+            f"west (left) wind {result[1]:.2f} mph. "
+            f"sin(90°-0°)=+1 should enhance east; sin(270°-0°)=-1 should reduce west."
+        )
+
+    def test_asymmetry_off_bitidentical(self, monkeypatch):
+        """
+        With _ASYMMETRY_ON=False, wind_at_locations is bit-identical to the
+        pure symmetric Holland profile (bearing() is never called; the correction
+        block is skipped entirely — no floating-point perturbation).
+        """
+        monkeypatch.setattr(_wf_mod, "_ASYMMETRY_ON", False)
+        monkeypatch.setattr(_wf_mod, "_WIND_PROFILE", "holland")
+
+        sp   = StormParams(rmax=self.RMAX, b=self.B, dp_mb=self.DP_MB, lat=self.LAT,
+                           heading_deg=0.0, vt_kmh=30.0)
+        lats = np.array([25.0, 25.5, 26.5])
+        lons = np.array([-80.0, -79.5, -82.0])
+
+        result_off = wind_at_locations(self.TRACK, sp, lats, lons)
+
+        # Reference: manually accumulate symmetric Holland over track steps
+        lats_a = np.asarray(lats, float)
+        lons_a = np.asarray(lons, float)
+        expected = np.zeros(len(lats_a))
+        for lat_c, lon_c, vmax_step, _ in self.TRACK:
+            d = haversine(lat_c, lon_c, lats_a, lons_a)
+            wind = _holland(d, self.RMAX, vmax_step, self.B, self.DP_MB, self.LAT, _RHO)
+            np.maximum(expected, wind, out=expected)
+
+        assert np.array_equal(result_off, expected), (
+            "asymmetry=off must produce bit-identical output to the symmetric "
+            "Holland profile (bearing/correction block must not execute)"
+        )
+
+    def test_right_greater_than_left(self, monkeypatch):
+        """
+        Integration: east location (right of north-moving storm) must have
+        higher maximum wind than west location (left) at equal distance.
+        """
+        monkeypatch.setattr(_wf_mod, "_ASYMMETRY_ON", True)
+        monkeypatch.setattr(_wf_mod, "_WIND_PROFILE", "holland")
+
+        sp = StormParams(rmax=self.RMAX, b=self.B, dp_mb=self.DP_MB, lat=self.LAT,
+                         heading_deg=0.0, vt_kmh=30.0)
+
+        # ~100 km east and west of the track centreline (lon=-80.5)
+        w_east = wind_at_locations(
+            self.TRACK, sp, np.array([25.5]), np.array([-79.5]))
+        w_west = wind_at_locations(
+            self.TRACK, sp, np.array([25.5]), np.array([-81.5]))
+
+        assert w_east[0] > w_west[0], (
+            f"MIRROR BUG: east wind {w_east[0]:.1f} mph must exceed "
+            f"west wind {w_west[0]:.1f} mph for north-moving storm (heading=0°)"
+        )
+
+    def test_asymmetry_magnitude(self):
+        """
+        Right-left wind spread is bounded by 2·a·Vt_mph.
+
+        If raw km/h were passed instead of mph the spread would be ~1.6× too large;
+        this test catches that unit error.
+        """
+        vt_kmh = 30.0
+        vt_mph = vt_kmh * 0.621371
+        v_sym  = np.array([80.0, 80.0])
+        brg    = np.array([90.0, 270.0])   # right, left
+
+        result = _apply_asymmetry(v_sym, brg, 0.0, vt_mph, _ASYM_FRAC)
+        spread = float(result[0] - result[1])
+        bound  = 2.0 * _ASYM_FRAC * vt_mph
+
+        assert spread <= bound * 1.001, (
+            f"Right-left spread {spread:.2f} mph > 2·a·Vt = {bound:.2f} mph. "
+            f"Unit error? Raw km/h ({vt_kmh:.0f}) would give "
+            f"{2 * _ASYM_FRAC * vt_kmh:.1f} mph spread."
+        )
+
+    def test_no_negative_wind(self):
+        """max(0,...) clip ensures no location ever receives negative wind."""
+        v_sym  = np.array([5.0, 2.0, 0.5, 0.0])   # near-zero left-flank periphery
+        brg    = np.array([270.0, 270.0, 270.0, 270.0])   # all on the weak side
+        vt_mph = 25.0   # large enough to drive subtraction below zero without the clip
+        result = _apply_asymmetry(v_sym, brg, 0.0, vt_mph, _ASYM_FRAC)
+        assert (result >= 0.0).all(), (
+            f"Negative wind after asymmetry correction: {result}"
+        )
+
+    def test_clip_only_below_damage_threshold(self):
+        """
+        Physical refinement test: the max(0,...) clip must fire ONLY in the
+        sub-damage-threshold periphery (V_sym < ~50 mph sustained).
+
+        If the clip ever activates where V_sym >= 50 mph, the additive+clip form
+        would zero out wind at a loss-relevant location — a physical error in the
+        loss calculation, not just a peripheral artefact.
+
+        Worst-case setup: left side (sin = -1), correction = -a·Vt_mph.
+        Clip fires when V_sym < a·Vt_mph. We use a conservative high-end FL
+        translation speed (50 km/h, ~31 mph) so a·Vt_mph ≈ 15.5 mph — the
+        maximum plausible clip activation threshold.
+        """
+        DAMAGE_THRESHOLD_MPH = 50.0
+        VT_KMH = 50.0               # well above FL mean (23.6 km/h), maximises pressure
+        vt_mph = VT_KMH * 0.621371
+        max_correction = _ASYM_FRAC * vt_mph   # ~15.5 mph for a=0.5
+
+        r_dense = np.linspace(0.01, 20.0 * self.RMAX, 5000)
+        v_sym   = _holland(r_dense, self.RMAX, self.VMAX, self.B, self.DP_MB, self.LAT, _RHO)
+
+        # Locations where max(0,...) would fire: left-side corrected wind < 0
+        clips_here = (v_sym - max_correction) < 0.0
+        v_at_clip  = v_sym[clips_here]
+
+        if len(v_at_clip) > 0:
+            max_clip = float(v_at_clip.max())
+            assert max_clip < DAMAGE_THRESHOLD_MPH, (
+                f"max(0,...) clip activates at V_sym = {max_clip:.1f} mph, which is "
+                f">= the damage threshold ({DAMAGE_THRESHOLD_MPH:.0f} mph sustained). "
+                f"The additive+clip asymmetry is physically inappropriate here — it "
+                f"would force zero wind at a loss-relevant location. "
+                f"Reduce asymmetry_fraction or switch to a non-additive formulation."
+            )

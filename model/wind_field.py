@@ -10,13 +10,15 @@ from dataclasses import dataclass
 import numpy as np
 
 from model_config import load_model_cfg
-from model.geo_utils import haversine
+from model.geo_utils import haversine, bearing
 
 _mcfg         = load_model_cfg()
 _OUTER_DECAY  = float(_mcfg.hazard.outer_decay_exponent)
 _WIND_PROFILE = str(_mcfg.hazard.physics.wind_profile)
 _B_METHOD     = str(_mcfg.hazard.physics.b_method)
 _RHO          = float(_mcfg.hazard.physics.air_density_kg_m3)
+_ASYMMETRY_ON = str(_mcfg.hazard.physics.translation_asymmetry) == "on"
+_ASYM_FRAC    = float(_mcfg.hazard.physics.asymmetry_fraction)
 
 assert _WIND_PROFILE in {"rankine", "holland"}, (
     f"hazard.physics.wind_profile must be 'rankine' or 'holland'; got {_WIND_PROFILE!r}"
@@ -147,6 +149,37 @@ def _rankine(d: np.ndarray, rmax: float, vmax_step: float,
     )
 
 
+def _apply_asymmetry(wind_sym: np.ndarray, bearing_deg: np.ndarray,
+                     heading_deg: float, vt_mph: float, a: float) -> np.ndarray:
+    """
+    Schwerdt-Ho-Watkins (1979) / HAZUS-MH forward-motion asymmetry correction.
+
+    V_total = max(0,  V_sym  +  a · Vt_mph · sin(bearing_deg − heading_deg))
+
+    Angle convention — both in meteorological degrees (0=N, 90=E, clockwise):
+      sin(β_loc − β_heading) = +1  when location is 90° CW from heading (RIGHT side)
+                              = −1  when 90° CCW from heading (LEFT side)
+                              =  0  directly ahead or behind
+
+    The max(0, …) clip zeroes out the weak left-flank periphery where V_sym is already
+    below the loss-relevant damage threshold. See test_clip_only_below_damage_threshold.
+
+    Parameters
+    ----------
+    wind_sym    : ndarray, mph — symmetric radial profile from _holland or _rankine
+    bearing_deg : ndarray, deg — meteorological bearing from storm centre to each location
+    heading_deg : float,   deg — storm heading (direction of motion), meteorological
+    vt_mph      : float,   mph — translation speed; caller converts from km/h
+    a           : float,   —   — asymmetry fraction (config: asymmetry_fraction)
+
+    Returns
+    -------
+    wind_asym : ndarray, mph
+    """
+    delta = np.radians(bearing_deg - heading_deg)
+    return np.maximum(0.0, wind_sym + a * vt_mph * np.sin(delta))
+
+
 def wind_at_locations(track: np.ndarray, storm_params: StormParams,
                       lats, lons) -> np.ndarray:
     """
@@ -173,6 +206,10 @@ def wind_at_locations(track: np.ndarray, storm_params: StormParams,
                             storm_params.dp_mb, storm_params.lat, _RHO)
         else:
             wind = _rankine(d, storm_params.rmax, vmax_step, _OUTER_DECAY)
+        if _ASYMMETRY_ON:
+            brg    = bearing(lat_c, lon_c, lats, lons)
+            vt_mph = storm_params.vt_kmh * 0.621371   # km/h -> mph
+            wind   = _apply_asymmetry(wind, brg, storm_params.heading_deg, vt_mph, _ASYM_FRAC)
         np.maximum(max_wind, wind, out=max_wind)
 
     return max_wind

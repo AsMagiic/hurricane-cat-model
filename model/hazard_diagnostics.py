@@ -57,7 +57,18 @@ for i in range(N_STORMS):
     if (i + 1) % 2_000 == 0:
         print(f"  {i + 1:,} / {N_STORMS:,}")
     track, meta   = sample_storm(rng)
-    all_winds[i]  = wind_at_locations(track, StormParams(rmax=meta["rmax"]), lats, lons)
+    all_winds[i]  = wind_at_locations(
+        track,
+        StormParams(
+            rmax=meta["rmax"],
+            b=meta["b"],
+            dp_mb=meta["dp_mb"],
+            lat=meta["landfall_lat"],
+            heading_deg=meta["heading_deg"],
+            vt_kmh=meta["translation_speed_kmh"],
+        ),
+        lats, lons,
+    )
     lf_lats[i]    = meta["landfall_lat"]
     lf_lons[i]    = meta["landfall_lon"]
     storm_cats[i] = meta["category"]
