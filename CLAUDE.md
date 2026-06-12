@@ -58,6 +58,8 @@ Python 3.11+, numpy, pandas, matplotlib, scipy, pyyaml, pytest
 - 2026-06-12 — Step 3.0b: nested spawn architecture is the canonical pattern for adding a new stochastic physics component without perturbing existing streams. `vw_rng = rng.spawn(1)[0]` (same slot per storm as before); `wpr_rng = vw_rng.spawn(1)[0]` (nested child — vw_rng.spawn() does not consume vw_rng's bitgenerator variates). spawn(2) from the parent RNG does NOT work — it increments the parent's n_children_spawned by 2 per storm, so storm N's children use different slots than before. Nested spawn from a child is the correct pattern.
 - 2026-06-12 — Step 3.0b DoD CLOSED — stochastic WPR residual implemented and tested. Ships off by default (wpr=off bit-identical to 3.0a baseline; _V3_ANCHORS unchanged). wpr=on effect: AAL −0.259M (−2.8%), OEP-100 −3.1M, OEP-250 −0.4M, OEP-500 +4.8M, OEP-1000 +10.4M. Sign reverses between 250 and 500 — variance dominates at deep tail. Sub-physical Rmax (< 8 km): 153/100k storms (0.153%, min 1.2 km) under wpr=on. wpr=on NOT production-ready: deferred to Step 3.0c physical Rmax floor. Config 6 added to waterfall.
 - 2026-06-12 — Step 3.0c DoD CLOSED — physical Rmax floor (8 km, on by default) implemented and tested. floor=off bit-identical to post-3.0b baseline; identity confirmed by reconciliation run (B raw<8km=99 == C floored=99, same 65,759-storm event count across all three scenarios, pure max() with zero RNG draws). Production baseline shift: AAL +$82,612 (+0.001%); all OEP/AEP quantiles unchanged (4 floored storms too compact to register at any return period). Under wpr=on+floor=on: min Rmax=8.000 km exactly, 0 storms < 8 km — 3.0c unblocks wpr=on for sub-physical concern. Remaining wpr=on question: mean vs median Δp centering (open design decision from 3.0b). Also corrected stale CLAUDE.md counts: 153→99 and min 1.2 km→0.920 km (the 153 was a 3.0a backlog projection transcribed unverified into 3.0b outcomes; real seed=42 100k-year run gives 99). Next: Step 3.1 Beta-distributed damage ratios.
+- 2026-06-12 — Vulnerability re-architecture: migrating from v2 logistic damage-ratio curves to the industry-standard 5-state damage-state framework (HAZUS Hurricane TM Table 5-44). Source verification finding: HAZUS, FPHLM, and Pinelli et al. (2004) publish methodology but NOT calibrated parameters — Pinelli inputs are explicitly "hypothetical". All fragility parameters are own-derived by triangulation from public sources. Task 2a (calibration script) DONE. Task 2b (model integration, new config block, vulnerability mode switch) NEXT.
+- 2026-06-12 — Task 2a DoD CLOSED — fragility_thetas.py derives DS1-DS4 theta/beta parameters by (1) fixing theta3=v2 midpoint, theta1=88*(midpoint/145), (2) grid-searching beta in [0.10,0.24] (0.25 infeasible: exp(0.5)=1.6487 > 145/88=1.6477), (3) Nelder-Mead with 3 fixed multistarts for theta2/theta4 minimising MSE vs v2 logistic over g=linspace(70,220,80). 19/19 tests pass; 128/128 suite green. See Task 2a outcomes section below.
 - 2026-06-12 — 3.0b Jensen question RESOLVED: wind_pressure.py fits via np.polyfit on ln(Δp)~ln(Vmax), no bias correction → coefficient `a` = exp(E[ln Δp]) = MEDIAN of conditional Δp. Therefore Δp = a·Vmax^b · exp(ε) is correct and needs NO −σ²/2 centering: the deterministic line was the median, and exp(ε) recovers the full distribution whose mean is median·exp(σ²/2). The +3% Jensen shift is not a bug — it corrects a pre-existing UNDER-estimate of mean Δp by the deterministic (median-based) implementation. Residual is statistically honest as-is. OPEN DESIGN DECISION (deferred to after 3.0c): should production (wpr=on) use the mean (current behavior, statistically unbiased for expected loss) or be re-centered to preserve the old median? Defer until the Rmax floor exists, since part of the +3% Δp mass lands in sub-physical Rmax that the floor will reshape — deciding the Δp center before the floor would be deciding on numbers that will change.
 
 ## Phase 1 calibration outcomes (HURDAT2) — full rationale in config/model_v3.yaml `source:` fields
@@ -176,6 +178,63 @@ floor=off) confirms: 99 storms, min Rmax 0.920 km. Both entries corrected in thi
 tests/test_rmax_floor.py: 6 tests (floor=off bit-identity, floor switch, AAL direction,
 B coupling to floored Rmax — deterministic at _FLOOR_KM_TEST=40 km, 3/10 storms trigger,
 no conditional skip). Config 7 (floor=on, wpr=off) added to waterfall.
+
+## Task 2a outcomes — DONE 2026-06-12 (vulnerability re-architecture, calibration step)
+Damage-state fragility parameters derived in `calibration/fragility_thetas.py`.
+Framework: 5 states DS0-DS4, lognormal fragility P(DS≥k|g) = Φ(ln(g/θ_k)/β),
+consequence [0, 0.02, 0.10, 0.50, 1.00] (HAZUS TM §8.1.4.3).
+E[DR|g] = Σ_{k=1}^{4} Δlr_k · Φ(ln(g/θ_k)/β), Δlr=[0.02,0.08,0.40,0.50].
+All wind speeds 3-s peak gust (mph).
+
+**Derived parameters (seed-free, deterministic):**
+
+| Class              |  β   |  θ₁   |  θ₂   |  θ₃   |  θ₄   |  RMSE  |
+|--------------------|------|--------|--------|--------|--------|--------|
+| Manufactured       | 0.11 |  66.8  |  74.5  | 110.0  | 122.8  | 0.0495 |
+| Wood Frame         | 0.13 |  88.0  | 100.2  | 145.0  | 165.1  | 0.0666 |
+| Masonry            | 0.15 | 100.1  | 116.3  | 165.0  | 191.7  | 0.0393 |
+| Reinforced Concrete| 0.20 | 112.3  | 143.7  | 185.0  | 226.8  | 0.0062 |
+
+**E[DR] at gust_threshold = 65 mph (DS scheme has no hard threshold):**
+Manufactured 0.01664 | Wood Frame 0.00023 | Masonry 0.00004 | RC 0.00007.
+Manufactured is the most consequential signal: θ₁=66.8 mph sits 1.8 mph above
+the v2 threshold, so the DS scheme assigns real damage (E[DR]~1.7% at 65 mph,
+~0.4% at 60 mph) exactly where the v2 logistic hard-cuts to zero. Storm
+peripheries cover large areas at every event, and Manufactured has the highest
+damage ratio — small ΔDR × large area × high frequency = potentially material
+AAL delta. Task 2b open decision: keep the 65-mph hard cutoff (preserving v2
+behaviour) or let damage onset emerge from the fragilities (the v2 threshold
+was source:'illustrative'). QUANTIFY the AAL delta under both choices before
+deciding. WF/Masonry/RC: decision moot (E[DR]@65 < 0.025%).
+
+The E[DR] curves for Mfg/WF show a 'shoulder' (~0.10 plateau around
+85-105/100-120 mph respectively): DS1+DS2 saturate (envelope damage complete,
+2%+8%) before DS3 (structural damage) onset. This plateau-then-rise shape is an
+EXPECTED structural feature of the damage-state scheme — physically meaningful
+and impossible to represent with a logistic. Not a calibration artifact.
+
+At extreme winds the DS-scheme E[DR] exceeds the old logistic caps
+(Masonry ~0.93 vs cap 0.90; RC ~0.71 and rising vs cap 0.75): the intended
+consequence of the free-cap design decision — destruction probability emerges
+from the DS4 fragility (θ₄) instead of being forbidden by an artificial
+ceiling. Task 3 validation should expect this difference vs the logistic.
+
+**Feasibility:** θ₃/θ₁ = 145/88 = 1.6477 (identical ratio for all classes by
+construction). β=0.25 infeasible (exp(0.5)=1.6487 > 1.6477); effective grid
+[0.10, 0.24]. No beta pinned at either edge.
+
+**Source verification:** HAZUS Hurricane TM (Table 5-44, §8.1.4.3), FPHLM,
+Pinelli et al. (2004) — all publish methodology only, not calibrated parameters.
+Own-derived by triangulation; derivation rationale inline in fragility_thetas.py.
+
+**Artifacts (versioned):** outputs/fragility_calibration.png (2×2 grid, v2
+logistic vs DS E[DR] + 4 fragility curves per class); outputs/fragility_thetas.csv.
+tests/test_fragility_calibration.py: 19 tests (pure functions, feasibility,
+determinism, sanity: thetas↑, SEP, cross-class hierarchy, beta bounds, E[DR]↑).
+
+**Next (Task 2b):** add `damage_states:` block to config/model_v3.yaml; add
+vulnerability mode switch (`logistic` | `damage_states`) to vulnerability.py;
+propagate through loss.py; ship outputs unchanged in logistic mode (bit-identity).
 
 ## RNG discipline (Phase 2 onward — MANDATORY for all new stochastic physics)
 The legacy per-storm RNG stream is FROZEN. All new stochastic components draw
