@@ -257,7 +257,7 @@ Generated figures (in `outputs/`):
 
 Each module is checked against independent references, not just "does it run":
 
-- **Hazard** — eye-of-calm at the storm centre, wind peaks at the radius of max winds, monotonic decay outward; mean storms/year converges to λ=0.6576; Cat-3-plus share ~0.34 (continuous Vmax, vs ~0.35 theoretical); high-wind locations form coherent geographic clusters. Spatial diagnostics over a 10,000-storm catalogue reflect the calibrated v3 geography: 9.2% of landfalls fall in the narrow SE-Atlantic corridor (down from the v2 placeholder's artificial concentration there — the calibrated KDE spreads storms across the whole coast, including the panhandle where the portfolio has no exposure), and 48.4% of storms that form still strike 2+ portfolio counties above Cat 1, confirming the spatial correlation that drives tail accumulation.
+- **Hazard** — eye-of-calm at the storm centre, wind peaks at the radius of max winds, monotonic decay outward; mean storms/year converges to λ=0.6576; Cat-3-plus share ~0.34 (continuous Vmax, vs ~0.35 theoretical); high-wind locations form coherent geographic clusters. Spatial diagnostics over a 10,000-storm catalogue reflect the calibrated v3 geography: 9.2% of simulated landfalls fall in the narrow SE-Atlantic corridor, within 2.4 pp of the 11.6% implied by the historical HURDAT2 sample the KDE was fitted on — the sampler reproduces the data's spatial distribution (the v2 placeholder artificially concentrated storms there; the calibrated KDE spreads them across the whole coast, including the panhandle where the portfolio has no exposure). 48.4% of storms that form still strike 2+ portfolio counties above Cat 1, confirming the spatial correlation that drives tail accumulation.
 - **Vulnerability** — curves monotonic, bounded by their caps, fragility hierarchy preserved at every wind speed, damage zero below threshold, gust conversion sanity-checked.
 - **Financial loss** — gross <= ground-up everywhere; the annual table holds exactly N years (including loss-free years); each year's max single event <= its aggregate; share of loss-free years >= the e^(-λ) = 51.8% Poisson floor (62.9% simulated, λ=0.6576).
 - **Reinsurance** — net <= gross always; recovery bounded in [0, tower capacity]; zero recovery below the first attachment; full recovery at exhaustion.
@@ -273,6 +273,7 @@ Stated plainly so results are read in context. The v2→v3 work resolved several
 - **Single λ, no clustering.** Storm frequency has no over-dispersion or seasonal clustering, which understates the aggregate (AEP) tail.
 - **No secondary uncertainty.** Damage ratios are deterministic given wind and construction — no variance around the mean curve.
 - **Single peril.** Wind only; no storm surge, inland flood, or demand surge.
+- **Track-frozen storm parameters.** Rmax, B, and Δp are held at their landfall values along a straight-line track; Coriolis latitude is fixed at landfall; inland decay continues even where a long track exits the peninsula over water.
 - **Illustrative vulnerability & financials.** The hazard is calibrated to HURDAT2; the portfolio, vulnerability curves, and financial terms remain synthetic.
 - **Reinsurance structure.** No reinstatements, no co-participation, no quota share — the net loss is flat at the retention by design.
 
@@ -329,7 +330,7 @@ hurricane-cat-model/
 |   `-- sanity_check.py          # v1 reference - Poisson validation
 |-- outputs/                     # generated plots (pipeline + calibration figures)
 `-- results/                     # generated CSVs (gitignored, reproducible)
-    `-- summary_metrics.csv      # headline metrics table (versioned)
+    `-- summary_metrics.csv      # headline metrics table (regenerated each run)
 ```
 
 ---
