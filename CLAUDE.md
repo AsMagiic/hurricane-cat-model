@@ -37,6 +37,10 @@ This branch targets v3 — do not break v2 behaviour without a clear decision lo
   no module-level RNG state
 - **Tests required**: every statistical module in `model/` gets a matching
   `tests/test_<module>.py` using pytest; CI must stay green
+- **Complete commits**: every step's commit must include ALL regenerated
+  versioned artifacts (outputs/*.png, results/summary_metrics.csv) from the
+  final production run — partial commits left the repo inconsistent twice
+  on 2026-06-12
 
 ## Stack
 Python 3.11+, numpy, pandas, matplotlib, scipy, pyyaml, pytest
@@ -48,6 +52,7 @@ Python 3.11+, numpy, pandas, matplotlib, scipy, pyyaml, pytest
 - 2026-06-12 — results/summary_metrics.csv was committed with stale numbers (waterfall Config-2 intermediate state, AAL 7.58M) — waterfall subprocesses write to the same production file as run_all.py; fixed in f5b378c by regenerating from clean HEAD (reproduced v3 baseline exactly)
 - 2026-06-12 — waterfall analysis runs must write to an isolated directory (results/waterfall/), never production summary_metrics.csv — implemented in Step 3.0a: `--results-dir results/waterfall` passed to run_all.py subprocesses; regression guard asserts prod mtime unchanged after sweep
 - 2026-06-12 — .gitignore `results/` changed to `results/*` — directory-level ignore made the `!results/summary_metrics.csv` negation dead letter (file was tracked only by legacy status)
+- 2026-06-12 — Step 3.0a DoD NOT fully closed — pending next session: (1) report OEP/AEP gross at 1-in-500 and 1-in-1000, cap=off vs cap=on, from real runs (rank check N=100k: 0-indexed ranks 199/99) and add the before/after tail table to the README — this is the headline evidence of the step (deep-tail correction, TVaR prerequisite); (2) verify the README subsection exists (why truncation, MPI vs historical record, renormalization vs clipping) and matches final numbers. Then Step 3.0b (stochastic WPR residual).
 
 ## Phase 1 calibration outcomes (HURDAT2) — full rationale in config/model_v3.yaml `source:` fields
 - **Frequency**: λ=0.6576/yr — Poisson GLM (log link), single covariate standardized AMO
