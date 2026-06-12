@@ -119,7 +119,7 @@ The landfall distribution is doubly truncated: lower at 64 kt (the HU definition
 
 **Why MPI rather than the record?** The observed record is a censored sample — storms stronger than any landfalling event may be physically possible; MPI bounds the attainable intensity thermodynamically.
 
-**Renormalization, not clipping.** The inverse-CDF sampler maps a uniform U∈[0,1) into [p_lb, p_ub] instead of [p_lb, 1). This redistributes probability mass within the valid range; the shape of the distribution below the cap is unchanged up to a renormalization factor < 0.5 mph for Cat1–3 draws (< 111 kt). Clipping (capping post-draw) would pile probability mass at the ceiling and distort the CDF.
+**Renormalization, not clipping.** The inverse-CDF sampler maps a uniform U∈[0,1) into [p_lb, p_ub] instead of [p_lb, 1). This rescales the density by the dimensionless factor (p_ub − p_lb)/(1 − p_lb) ≈ 0.9961; the observable effect on sub-cap intensities is a downward shift of less than 0.5 mph for Cat1–3 draws (< 111 kt) — gentle, as the 3.0a tests confirm. Clipping (capping post-draw) would pile probability mass at the ceiling and distort the CDF.
 
 **Before/after tail (seed=42, 100k years, real runs):**
 
@@ -137,7 +137,13 @@ The landfall distribution is doubly truncated: lower at 64 kt (the HU definition
 | 1-in-500 | 169.02 M | **169.27 M** | +0.25 M | 182.47 M | **181.52 M** | −0.95 M |
 | 1-in-1000 | 190.54 M | **191.08 M** | +0.54 M | 205.08 M | **204.23 M** | −0.85 M |
 
-The per-occurrence (OEP) effect reverses sign at 1-in-500 and 1-in-1000: renormalization redistributes probability mass from the truncated tail into the sub-cap range, slightly boosting event intensities just below 165 kt — and at those deep return periods the boosted near-cap events dominate over the ~297 capped events. The aggregate (AEP) effect is uniformly downward across all return periods. The OEP-1000 shift of +0.54 M (<0.3% of PML) is within Monte Carlo noise at N=100k. The max event gross (cap=on: 326.79 M > cap=off: 323.36 M) reflects the same mechanism: renormalization lifts sub-cap events, and a different event becomes the single maximum. Removing the "243 kt / 280 mph" artifact and bounding the tail at a thermodynamically defensible ceiling is a prerequisite for a credible TVaR at the 1-in-1000 return period.
+The aggregate (AEP) effect is uniformly downward across all return periods. The per-occurrence (OEP) sign reverses at 1-in-500/1000 — but this is not a renormalization artefact; the mechanism runs through the coupled V&W Rmax formula.
+
+**Why the OEP can rise under a cap.** The uncapped lognormal tail generates events at 200–240 kt whose V&W Rmax collapses to 1–6 km — geometrically sub-portfolio-resolution and physically implausible (no observed TC has Rmax < 8 km). These storms are near-zero-loss numerical artefacts: the wind core is so compact it misses virtually every portfolio location. Capping such a storm at 165 kt simultaneously expands its Rmax 5–18× (via the shared Δp chain: lower Vmax → lower Δp → larger Rmax), transforming a compact near-miss into a broad direct hit. For some track/exposure geometries the capped event produces *higher* portfolio losses. Pairwise comparison across all 100,000 simulated years confirms this: 1,619 years have max-event gross higher under cap=on than cap=off, with excess up to 150 M in the extreme case.
+
+**Magnitude.** The net effect averages away (AAL −0.020 M). The +0.25 M and +0.54 M OEP differences at 1-in-500 and 1-in-1000 are within Monte Carlo sampling noise — bootstrap 95% CIs overlap completely, and the differences are 5–10% of their respective CI half-widths (~4.6 M and ~5.5 M). These deep-tail signs are not interpretable as directional physical effects. The max event gross shift (cap=on 326.79 M > cap=off 323.36 M) follows the same mechanism: a different event becomes the portfolio maximum under the cap.
+
+The primary benefit of the MPI ceiling is eliminating the sub-physical compact-storm artefacts and bounding the V&W Rmax regression to its valid range — a prerequisite for credible TVaR at the 1-in-1000 return period.
 
 ### Attribution waterfall — what each component contributes
 
