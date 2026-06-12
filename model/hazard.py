@@ -58,6 +58,12 @@ _OUTER_DECAY  = _mcfg.hazard.outer_decay_exponent
 _RMAX_MIN_KM  = float(_mcfg.hazard.rmax_km_min)
 _RMAX_MAX_KM  = float(_mcfg.hazard.rmax_km_max)
 
+# Kaplan-DeMaria (1995) inland decay constants (Paso 2.3)
+_DECAY_METHOD = str(_mcfg.hazard.physics.decay_method)          # "efold" | "kaplan_demaria"
+_KD_ALPHA     = float(_mcfg.hazard.physics.kd_alpha)             # 0.095 h^-1
+_KD_VB_MPH    = float(_mcfg.hazard.physics.kd_vb_kt) * 1.15078  # 26.7 kt -> 30.726 mph
+_VT_MIN_KMH   = float(_mcfg.hazard.physics.vt_min_kmh)           # 2.0 km/h floor
+
 # Physics switches — "uniform"|"vickery_wadhera" for rmax; "constant"|"vickery_wadhera" for b.
 _RMAX_METHOD = str(_mcfg.hazard.physics.rmax_method)
 _B_METHOD    = str(_mcfg.hazard.physics.b_method)
@@ -276,7 +282,7 @@ def sample_intensity(rng):
 # ---------------------------------------------------------------------------
 # Track building
 # ---------------------------------------------------------------------------
-def build_track(landfall_lat, landfall_lon, vmax, heading_deg, rmax_km):
+def build_track(landfall_lat, landfall_lon, vmax, heading_deg, rmax_km, vt_kmh):
     """
     Generate a 10-step inland track starting at the landfall point.
 
@@ -287,11 +293,14 @@ def build_track(landfall_lat, landfall_lon, vmax, heading_deg, rmax_km):
                           Advance convention unchanged: heading=0 → dlat>0, dlon=0.
     rmax_km     : float — radius of maximum winds (km), sampled in sample_storm
                           (uniform or V&W depending on physics switch), constant along track.
+    vt_kmh      : float — translation speed (km/h). Used only on the kaplan_demaria decay
+                          path (t = cum_dist / vt_kmh, units: km/(km/h) = h). Ignored on
+                          the efold path so that efold output is bit-identical to v2.
 
     Returns
     -------
     track : ndarray (11, 4) — columns: [lat, lon, vmax_step, cum_dist_km]
-              row 0 = landfall (peak intensity), rows 1-10 = inland steps
+              row 0 = landfall (peak intensity, t=0 so no decay applied), rows 1-10 inland
     """
     heading_rad = np.radians(heading_deg)
 
@@ -302,8 +311,17 @@ def build_track(landfall_lat, landfall_lon, vmax, heading_deg, rmax_km):
     rows = []
     lat, lon = landfall_lat, landfall_lon
     for i in range(n_steps + 1):
-        cum_dist  = i * step_km
-        vmax_step = vmax * np.exp(-cum_dist / e_fold)
+        cum_dist = i * step_km
+        if _DECAY_METHOD == "kaplan_demaria":
+            # t = cum_dist [km] / vt [km/h] = hours; alpha [h^-1] consistent.
+            # V(t) = Vb + (V0 - Vb) * exp(-alpha * t)
+            # At t=0 (row 0): exp(0)=1 -> vmax_step = Vb + (V0-Vb) = V0 exactly.
+            vt_safe   = max(vt_kmh, _VT_MIN_KMH)
+            t_hours   = cum_dist / vt_safe
+            vmax_step = _KD_VB_MPH + (vmax - _KD_VB_MPH) * np.exp(-_KD_ALPHA * t_hours)
+        else:
+            # efold: bit-identical to v2 baseline, vt_kmh is not used.
+            vmax_step = vmax * np.exp(-cum_dist / e_fold)
         rows.append([lat, lon, vmax_step, cum_dist])
         # Advance center by step_km in the heading direction (flat-earth approx)
         dlat = step_km * np.cos(heading_rad) / 111.0
@@ -371,7 +389,7 @@ def sample_storm(rng):
     else:  # "vickery_wadhera"
         b = _vw_b_sample(rmax_km, lat_lf, sub_rng)                  # sub_rng draw 2 (or 1 if rmax=uniform)
 
-    track = build_track(lat_lf, lon_lf, vmax, heading_deg, rmax_km)
+    track = build_track(lat_lf, lon_lf, vmax, heading_deg, rmax_km, speed_kmh)
 
     return track, {
         "category":              category,

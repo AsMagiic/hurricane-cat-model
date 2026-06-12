@@ -324,6 +324,22 @@ hazard:
       value: 0.5
       units: "dimensionless"
       source: "Paso 2.2. Surface-level asymmetry fraction a in V_total = V_sym + a*Vt_mph*sin(beta_loc - beta_heading). a=0.5 is the boundary-layer-reduced value (Powell 1980 observations, consistent with HAZUS-MH Hurricane Technical Manual FEMA 2012); full gradient-wind asymmetry is a=1.0 (Schwerdt-Ho-Watkins 1979 SPH original). See model/wind_field.py."
+    decay_method:
+      value: "kaplan_demaria"
+      units: "switch"
+      source: "Paso 2.3. Post-landfall intensity decay. 'efold': v2 e-folding decay (efold_km=120 km, vt-independent, bit-identical v2 baseline); 'kaplan_demaria': Kaplan & DeMaria (1995) J. Appl. Meteor. 34 2499-2512, coefficients per DeMaria et al. (2006) JAMC 45(3): V(t)=Vb+(V0-Vb)*exp(-alpha*t), t=cum_dist/vt_kmh. Default 'kaplan_demaria'. See model/hazard.py."
+    kd_alpha:
+      value: 0.095
+      units: "h^-1"
+      source: "Paso 2.3. Kaplan & DeMaria (1995) / DeMaria et al. (2006): exponential decay rate in V(t)=Vb+(V0-Vb)*exp(-alpha*t). See model/hazard.py."
+    kd_vb_kt:
+      value: 26.7
+      units: "kt"
+      source: "Paso 2.3. Kaplan & DeMaria (1995): residual background wind. Converted to mph at module load (x1.15078 mph/kt). See model/hazard.py."
+    vt_min_kmh:
+      value: 2.0
+      units: "km/h"
+      source: "Paso 2.3. Translation-speed floor for K-D time computation t=cum_dist/vt. Guards gamma-tail near-zero draws against divide-by-zero; 2 km/h (~1.1 kt) is physically near-stationary — decay toward Vb at this speed is correct behavior. Not applied on the efold path. See model/hazard.py."
 
 vickery_wadhera:
   # Rmax regression (eq. 13 in ERDC TR-08-06): ln(Rmax_km) = intercept + dp2_coeff*Δp² + lat_coeff*ψ + ε
