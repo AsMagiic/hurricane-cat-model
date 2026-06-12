@@ -113,6 +113,26 @@ The chain is causal: sampled Vmax drives a central-pressure deficit Δp (via a w
 
 > **A methodological note on anchoring.** The Holland profile is parameterized by Δp, but our intensity calibration is on landfall Vmax (HURDAT2, n=112) — a better-constrained quantity than the WPR-derived Δp (n=85). So the Holland profile supplies the radial *shape*, while Vmax supplies the *amplitude*: the profile is normalized and scaled so its peak equals the sampled Vmax. This is standard practice in production cat models, and it keeps the model's intensity tied to its strongest calibration.
 
+### Intensity bounding via Maximum Potential Intensity (MPI)
+
+The landfall distribution is doubly truncated: lower at 64 kt (the HU definitional threshold) and upper at **165 kt** (the empirical Atlantic MPI at SST ≈ 30°C). The MPI formula is DeMaria & Kaplan (1994): V = 28.2 + 55.8·exp(0.1813·(T−30)) m/s ≈ 163 kt at T=30°C; the cap rounds to 165 kt, sitting 5 kt above the HURDAT2 Atlantic landfall record (Labor Day 1935, Dorian 2019) — a physical ceiling, not a data ceiling.
+
+**Why MPI rather than the record?** The observed record is a censored sample — storms stronger than any landfalling event may be physically possible; MPI bounds the attainable intensity thermodynamically.
+
+**Renormalization, not clipping.** The inverse-CDF sampler maps a uniform U∈[0,1) into [p_lb, p_ub] instead of [p_lb, 1). This redistributes probability mass within the valid range; the shape of the distribution below the cap is unchanged up to a renormalization factor < 0.5 mph for Cat1–3 draws (< 111 kt). Clipping (capping post-draw) would pile probability mass at the ceiling and distort the CDF.
+
+**Before/after tail (seed=42, 100k years):**
+
+| Metric | Pre-cap (Phase 2) | Post-cap (Step 3.0a) | Δ |
+|---|---:|---:|---:|
+| Max Vmax in catalog | ~280 mph (243 kt) | 189.9 mph (165 kt) | −90 mph |
+| Events above cap (%) | ~0.45% (~297/65k) | 0 | removed |
+| AAL gross | 9.171 M | **9.151 M** | −0.020 M |
+| OEP-100 | 113.44 M | **113.23 M** | −0.21 M |
+| OEP-250 | 147.15 M | **146.88 M** | −0.27 M |
+
+The OEP-100/250 change is within Monte Carlo noise for most actuarial purposes; the impact is concentrated at extreme return periods (1-in-1000+), where the ~297 events exceeding 165 kt were the primary driver of tail losses. This is a prerequisite for a defensible TVaR at the 1-in-1000 return period.
+
 ### Attribution waterfall — what each component contributes
 
 Phase 1 deferred a fine-grained, component-by-component attribution to Phase 2, because the wind-physics comparisons required per-component configuration switches as infrastructure anyway. With every component behind a switch (each verified to reproduce the baseline bit-for-bit when off), the full v2→v3 change decomposes cleanly. All runs share seed 42, so the deltas are physics, not Monte Carlo noise.
@@ -123,7 +143,8 @@ Phase 1 deferred a fine-grained, component-by-component attribution to Phase 2, 
 | + Rmax (V&W) | 3.13 | **−0.45** | 47.0 | 67.3 |
 | + Holland & B | 7.58 | **+4.45** | 101.3 | 135.0 |
 | + Asymmetry | 8.32 | **+0.74** | 105.3 | 138.7 |
-| + Decay (K-D) | 9.17 | **+0.86** | 113.4 | 147.1 |
+| + Decay (K-D) | 9.17 | **+0.86** | 113.4 | 147.2 |
+| + Cap (MPI) | **9.15** | **−0.02** | **113.2** | **146.9** |
 
 Three findings worth reading off the table:
 

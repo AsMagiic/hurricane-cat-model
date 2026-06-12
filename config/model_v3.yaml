@@ -51,6 +51,10 @@ intensity:
     value: 0.2518
     units: "dimensionless"
     source: "MLE Truncated Lognormal fit to FL HU landfall Vmax, HURDAT2 full record 1851-2024 (n=112); selected over Shifted Weibull on upper-tail QQ MAD (1.49 kt vs 1.81 kt), dAIC=-2.30. Full record used for intensity (tail events scarce; pre-satellite Vmax measurement bias non-directional) vs satellite era for frequency (count detection bias). See calibration/intensity.py."
+  cap_kt:
+    value: 165.0
+    units: "kt"
+    source: "Step 3.0a. Empirical Atlantic MPI at SST ~30 C per DeMaria & Kaplan (1994), 'Sea surface temperature and the maximum intensity of Atlantic tropical cyclones', J. Climate 7, 1324-1334: V = A + B*exp(C*(T-30)), A=28.2 m/s, B=55.8 m/s, C=0.1813 /C -> ~163 kt at 30 C, rounded to 165 kt. Cross-check: HURDAT2 Atlantic landfall record is 160 kt (Labor Day 1935, Dorian 2019); cap sits 5 kt above the observed record as a physical ceiling, not a data ceiling. Active when hazard.physics.intensity_cap='on'."
 
 wind_pressure:
   p_env_mb:
@@ -328,6 +332,10 @@ hazard:
       value: "kaplan_demaria"
       units: "switch"
       source: "Paso 2.3. Post-landfall intensity decay. 'efold': v2 e-folding decay (efold_km=120 km, vt-independent, bit-identical v2 baseline); 'kaplan_demaria': Kaplan & DeMaria (1995) J. Appl. Meteor. 34 2499-2512, coefficients per DeMaria et al. (2006) JAMC 45(3): V(t)=Vb+(V0-Vb)*exp(-alpha*t), t=cum_dist/vt_kmh. Default 'kaplan_demaria'. See model/hazard.py."
+    intensity_cap:
+      value: "on"
+      units: "switch"
+      source: "Step 3.0a. Upper truncation of landfall intensity distribution at intensity.cap_kt. 'off': unbounded above, bit-identical to pre-3.0a v3 baseline (_INT_P_UB=1.0, same float expression). 'on': renormalized truncation; _INT_P_UB=Phi((ln(cap_kt)-mu_log)/sigma_log)~0.9961, so p_samp in [_INT_P_LB, _INT_P_UB]. Env-var override: CATMODEL_INTENSITY_CAP. See model/hazard.py."
     kd_alpha:
       value: 0.095
       units: "h^-1"

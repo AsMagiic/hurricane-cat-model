@@ -54,6 +54,19 @@ _INT_P_LB = float(scipy.stats.norm.cdf(
     (np.log(_INT_LOC) - _INT_MU_LOG) / _INT_SIGMA_LOG
 ))  # P(X < 64 kt) under parent lognormal; precomputed for inverse-CDF sampler
 
+_INT_CAP_KT    = float(_icfg.cap_kt)                             # 165.0 kt — empirical Atlantic MPI ceiling
+_INTENSITY_CAP = str(_mcfg.hazard.physics.intensity_cap)         # "on" | "off"
+assert _INTENSITY_CAP in {"on", "off"}, (
+    f"hazard.physics.intensity_cap must be 'on' or 'off'; got {_INTENSITY_CAP!r}"
+)
+_INT_P_UB = (
+    float(scipy.stats.norm.cdf(
+        (np.log(_INT_CAP_KT) - _INT_MU_LOG) / _INT_SIGMA_LOG
+    ))
+    if _INTENSITY_CAP == "on"
+    else 1.0   # exactly 1.0 — arithmetic below is bit-identical to pre-3.0a
+)
+
 # Florida coastline polyline for landfall sampling.
 # Ordered: Atlantic N->S, Keys, Gulf S->N.  Shape (12, 2): each row is [lat, lon].
 COAST_POINTS = np.array(_mcfg.hazard.coast_polyline)
@@ -278,13 +291,14 @@ def sample_intensity(rng):
     Sample (category: int 1-5, vmax: float mph) from the fitted truncated lognormal.
 
     Vmax drawn in kt via inverse-CDF: U ~ Uniform(0,1),
-    p = _INT_P_LB + U*(1-_INT_P_LB), Vmax_kt = exp(mu_log + sigma_log * Phi_inv(p)).
+    p = _INT_P_LB + U*(_INT_P_UB-_INT_P_LB), Vmax_kt = exp(mu_log + sigma_log * Phi_inv(p)).
+    When cap off: _INT_P_UB=1.0, expression reduces bit-for-bit to the pre-3.0a formula.
     Converted to mph via kt_to_mph. Category derived from Vmax using Saffir-Simpson
     bounds in _CAT_LO_MPH; Vmax is the source of truth, category is a derived label.
     Units: output vmax in mph (sustained 1-minute).
     """
     u        = float(rng.uniform(0.0, 1.0))
-    p_samp   = _INT_P_LB + u * (1.0 - _INT_P_LB)
+    p_samp   = _INT_P_LB + u * (_INT_P_UB - _INT_P_LB)
     vmax_kt  = float(np.exp(_INT_MU_LOG + _INT_SIGMA_LOG * float(scipy.stats.norm.ppf(p_samp))))
     vmax_mph = float(kt_to_mph(vmax_kt))
     return _vmax_to_category(vmax_mph), vmax_mph
@@ -550,9 +564,16 @@ if __name__ == "__main__":
     # Theoretical Cat3+ from fitted truncated lognormal: P(Vmax >= 111 mph | Vmax >= 64 kt)
     _cat3_lb_kt = float(mph_to_kt(_CAT_LO_MPH[2]))   # 111 mph -> kt
     _z_cat3     = (np.log(_cat3_lb_kt) - _INT_MU_LOG) / _INT_SIGMA_LOG
-    theoretical_cat3plus = float(
-        (1.0 - scipy.stats.norm.cdf(_z_cat3)) / (1.0 - _INT_P_LB)
-    )
+    if _INTENSITY_CAP == "on":
+        _z_cap = (np.log(_INT_CAP_KT) - _INT_MU_LOG) / _INT_SIGMA_LOG
+        theoretical_cat3plus = float(
+            (scipy.stats.norm.cdf(_z_cap) - scipy.stats.norm.cdf(_z_cat3))
+            / (scipy.stats.norm.cdf(_z_cap) - _INT_P_LB)
+        )
+    else:
+        theoretical_cat3plus = float(
+            (1.0 - scipy.stats.norm.cdf(_z_cat3)) / (1.0 - _INT_P_LB)
+        )
 
     assert abs(mean_n - LAMBDA) < 0.05, \
         f"Mean N/year {mean_n:.3f} too far from lambda={LAMBDA}"

@@ -34,11 +34,13 @@ import matplotlib.pyplot as plt
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-ROOT     = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CSV_PATH = os.path.join(ROOT, "results", "summary_metrics.csv")
-OUT_DIR  = os.path.join(ROOT, "outputs")
-RES_DIR  = os.path.join(ROOT, "results")
-RUN_ALL  = os.path.join(ROOT, "run_all.py")
+ROOT          = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PROD_CSV      = os.path.join(ROOT, "results", "summary_metrics.csv")   # production file — never written by waterfall
+WATERFALL_DIR = os.path.join(ROOT, "results", "waterfall")
+WATERFALL_CSV = os.path.join(WATERFALL_DIR, "summary_metrics.csv")     # subprocess-isolated copy
+OUT_DIR       = os.path.join(ROOT, "outputs")
+RES_DIR       = os.path.join(ROOT, "results")
+RUN_ALL       = os.path.join(ROOT, "run_all.py")
 
 # ---------------------------------------------------------------------------
 # Switch configurations
@@ -48,39 +50,48 @@ _RM = "CATMODEL_RMAX_METHOD"
 _BM = "CATMODEL_B_METHOD"
 _AS = "CATMODEL_TRANSLATION_ASYMMETRY"
 _DC = "CATMODEL_DECAY_METHOD"
+_IC = "CATMODEL_INTENSITY_CAP"
 
 MAIN_CONFIGS = [
     ("Config 0 -- v2 baseline",
-     {_WP: "rankine",  _RM: "uniform",         _BM: "constant",        _AS: "off", _DC: "efold"}),
+     {_WP: "rankine",  _RM: "uniform",         _BM: "constant",        _AS: "off", _DC: "efold",          _IC: "off"}),
     ("Config 1 -- +Rmax V&W",
-     {_WP: "rankine",  _RM: "vickery_wadhera", _BM: "constant",        _AS: "off", _DC: "efold"}),
+     {_WP: "rankine",  _RM: "vickery_wadhera", _BM: "constant",        _AS: "off", _DC: "efold",          _IC: "off"}),
     ("Config 2 -- +Holland & B",
-     {_WP: "holland",  _RM: "vickery_wadhera", _BM: "vickery_wadhera", _AS: "off", _DC: "efold"}),
+     {_WP: "holland",  _RM: "vickery_wadhera", _BM: "vickery_wadhera", _AS: "off", _DC: "efold",          _IC: "off"}),
     ("Config 3 -- +Asymmetry",
-     {_WP: "holland",  _RM: "vickery_wadhera", _BM: "vickery_wadhera", _AS: "on",  _DC: "efold"}),
-    ("Config 4 -- v3 full",
-     {_WP: "holland",  _RM: "vickery_wadhera", _BM: "vickery_wadhera", _AS: "on",  _DC: "kaplan_demaria"}),
+     {_WP: "holland",  _RM: "vickery_wadhera", _BM: "vickery_wadhera", _AS: "on",  _DC: "efold",          _IC: "off"}),
+    ("Config 4 -- +Decay (pre-cap)",
+     {_WP: "holland",  _RM: "vickery_wadhera", _BM: "vickery_wadhera", _AS: "on",  _DC: "kaplan_demaria", _IC: "off"}),
+    ("Config 5 -- +Intensity cap (v3+3.0a)",
+     {_WP: "holland",  _RM: "vickery_wadhera", _BM: "vickery_wadhera", _AS: "on",  _DC: "kaplan_demaria", _IC: "on"}),
 ]
 
 # One-at-a-time sensitivity: each component isolated from the v2 baseline.
 # S1 (v2 + Rmax only) == Config 1 -- reuse that result, no extra subprocess.
 # S2 keeps rmax_method=uniform to isolate Holland+B from the Rmax effect;
 #    Holland requires b_method=vickery_wadhera, so this run is "+Holland&B".
+# S5: cap only (all other switches at v2 legacy) to isolate its contribution.
 SENSITIVITY_CONFIGS = [
     ("S2 -- +Holland&B only",
-     {_WP: "holland",  _RM: "uniform",         _BM: "vickery_wadhera", _AS: "off", _DC: "efold"}),
+     {_WP: "holland",  _RM: "uniform",         _BM: "vickery_wadhera", _AS: "off", _DC: "efold",          _IC: "off"}),
     ("S3 -- +Asymmetry only",
-     {_WP: "rankine",  _RM: "uniform",         _BM: "constant",        _AS: "on",  _DC: "efold"}),
+     {_WP: "rankine",  _RM: "uniform",         _BM: "constant",        _AS: "on",  _DC: "efold",          _IC: "off"}),
     ("S4 -- +Decay only",
-     {_WP: "rankine",  _RM: "uniform",         _BM: "constant",        _AS: "off", _DC: "kaplan_demaria"}),
+     {_WP: "rankine",  _RM: "uniform",         _BM: "constant",        _AS: "off", _DC: "kaplan_demaria", _IC: "off"}),
+    ("S5 -- +Cap only",
+     {_WP: "rankine",  _RM: "uniform",         _BM: "constant",        _AS: "off", _DC: "efold",          _IC: "on"}),
 ]
 
 # ---------------------------------------------------------------------------
 # Bit-identical anchor self-check (full mode only)
 # ---------------------------------------------------------------------------
-# Values confirmed from Paso 2.3 validation (full 100k-year runs, seed=42).
+# _V2_ANCHORS: Config 0 (v2 baseline, seed=42, 100k years).
+# _V3_ANCHORS: Config 5 (v3+3.0a, all switches on, seed=42, 100k years).
+#   Updated from Phase 2 (9.171M) to Step 3.0a value after MPI cap is applied.
+#   Config 4 pre-cap numbers (Phase 2 v3 full): aal=9.171, oep100=113.44, oep250=147.15.
 _V2_ANCHORS = {"aal": 3.584,  "oep100":  58.28, "oep250":  84.85}
-_V3_ANCHORS = {"aal": 9.171,  "oep100": 113.44, "oep250": 147.15}
+_V3_ANCHORS = {"aal": 9.151,  "oep100": 113.23, "oep250": 146.88}  # Config 5 (v3+3.0a, cap=on, seed=42, 100k years)
 _ANCHOR_TOL = {"aal": 0.005,  "oep100":   0.05, "oep250":   0.05}
 
 # ---------------------------------------------------------------------------
@@ -130,26 +141,31 @@ def _read_metrics(path):
 # Subprocess runner
 # ---------------------------------------------------------------------------
 def _run_config(label, config_env, run_all_args):
-    """Run run_all.py with config_env overrides; return parsed metrics dict."""
+    """Run run_all.py with config_env overrides; return parsed metrics dict.
+
+    Subprocesses write summary_metrics.csv to results/waterfall/ (isolated from
+    the production results/summary_metrics.csv) via --results-dir.
+    """
     print(f"  {label}...", end=" ", flush=True)
     t_before = time.time()
     env = {**os.environ, **config_env}
+    cmd = [sys.executable, RUN_ALL] + run_all_args + ["--results-dir", "results/waterfall"]
     try:
         subprocess.run(
-            [sys.executable, RUN_ALL] + run_all_args,
+            cmd,
             env=env, cwd=ROOT, check=True,
             capture_output=True, text=True,
         )
     except subprocess.CalledProcessError as exc:
         tail = (exc.stderr or exc.stdout or "")[-3000:]
         sys.exit(f"\n[FAIL] '{label}' exited {exc.returncode}:\n{tail}")
-    if os.path.getmtime(CSV_PATH) < t_before:
+    if os.path.getmtime(WATERFALL_CSV) < t_before:
         raise RuntimeError(
-            f"summary_metrics.csv mtime did not advance after '{label}'. "
+            f"results/waterfall/summary_metrics.csv mtime did not advance after '{label}'. "
             "CSV may be stale from a crashed or no-op run."
         )
     elapsed = time.time() - t_before
-    result = _read_metrics(CSV_PATH)
+    result = _read_metrics(WATERFALL_CSV)
     print(
         f"done ({elapsed:.1f}s)"
         f"  AAL={result['aal']:.3f}M"
@@ -303,9 +319,10 @@ _STEP_COLORS = [
     "#DD8452",  # +Holland & B
     "#55A868",  # +Asymmetry
     "#C44E52",  # +Decay (K-D)
+    "#9B59B6",  # +Intensity cap (MPI)
 ]
-_STEP_XLABELS = ["v2\n(base)", "+Rmax\nV&W", "+Holland\n& B", "+Asym", "+Decay\n(v3)"]
-_LEGEND_LABELS = ["v2 baseline", "+Rmax V&W", "+Holland & B", "+Asymmetry", "+Decay (K-D)"]
+_STEP_XLABELS = ["v2\n(base)", "+Rmax\nV&W", "+Holland\n& B", "+Asym", "+Decay", "+Cap\n(MPI)"]
+_LEGEND_LABELS = ["v2 baseline", "+Rmax V&W", "+Holland & B", "+Asymmetry", "+Decay (K-D)", "+Intensity cap (MPI)"]
 
 
 def _plot_waterfall(cumulative, out_path):
@@ -384,30 +401,48 @@ def main():
     args = parser.parse_args()
     run_all_args = ["--quick"] if args.quick else []
 
+    # Create isolated waterfall dir before first subprocess run.
+    os.makedirs(WATERFALL_DIR, exist_ok=True)
+
+    # Regression guard: production CSV must NOT be touched by waterfall runs.
+    _prod_mtime_before = os.path.getmtime(PROD_CSV) if os.path.exists(PROD_CSV) else None
+
     print()
     print("=" * 60)
-    print("  Attribution Waterfall  --  8 subprocess configs")
+    print("  Attribution Waterfall  --  10 subprocess configs")
     mode = "--quick (1k years, MC noise expected)" if args.quick else "full 100k years"
     print(f"  Mode: {mode}")
     print("=" * 60)
 
     # -----------------------------------------------------------------------
-    # 5 main waterfall configs
+    # 6 main waterfall configs
     # -----------------------------------------------------------------------
     print("\n[1/2] Main waterfall configs:")
     main_results = []
     for label, config_env in MAIN_CONFIGS:
         main_results.append(_run_config(label, config_env, run_all_args))
-    c0, c1, c2, c3, c4 = main_results  # noqa: F841 (c2, c3 unused directly but kept for clarity)
+    c0, c1, c2, c3, c4, c5 = main_results  # noqa: F841 (c2-c4 unused directly but kept for clarity)
 
     # -----------------------------------------------------------------------
-    # 3 sensitivity configs  (S1 = c1, no extra subprocess)
+    # 4 sensitivity configs  (S1 = c1, no extra subprocess)
     # -----------------------------------------------------------------------
     print("\n[2/2] Sensitivity configs:")
     s_results = []
     for label, config_env in SENSITIVITY_CONFIGS:
         s_results.append(_run_config(label, config_env, run_all_args))
-    s1_res, s2_res, s3_res, s4_res = c1, s_results[0], s_results[1], s_results[2]
+    s1_res, s2_res, s3_res, s4_res, s5_res = c1, s_results[0], s_results[1], s_results[2], s_results[3]
+
+    # -----------------------------------------------------------------------
+    # Regression guard: production CSV must not have been touched
+    # -----------------------------------------------------------------------
+    if _prod_mtime_before is not None:
+        _prod_mtime_after = os.path.getmtime(PROD_CSV)
+        assert _prod_mtime_after == _prod_mtime_before, (
+            f"REGRESSION: results/summary_metrics.csv was modified by a waterfall "
+            f"subprocess (mtime changed from {_prod_mtime_before} to {_prod_mtime_after}). "
+            f"Waterfall must write to results/waterfall/ only."
+        )
+        print("\n[OK] Production results/summary_metrics.csv untouched.")
 
     # -----------------------------------------------------------------------
     # Bit-identical self-check (full mode only)
@@ -416,8 +451,8 @@ def main():
         print("\nChecking bit-identical anchors (full mode)...")
         failed = False
         for conf_label, result, anchor in [
-            ("Config 0 (v2)", c0, _V2_ANCHORS),
-            ("Config 4 (v3)", c4, _V3_ANCHORS),
+            ("Config 0 (v2)",       c0, _V2_ANCHORS),
+            ("Config 5 (v3+3.0a)", c5, _V3_ANCHORS),
         ]:
             for key in METRICS:
                 diff = abs(result[key] - anchor[key])
@@ -441,20 +476,20 @@ def main():
     # Build attribution and print table
     # -----------------------------------------------------------------------
     cumulative = list(zip(
-        ["v2 baseline", "+Rmax V&W", "+Holland & B", "+Asymmetry", "+Decay (v3)"],
+        ["v2 baseline", "+Rmax V&W", "+Holland & B", "+Asymmetry", "+Decay", "+Cap (MPI)"],
         main_results,
     ))
-    iso_labels  = ["+Rmax only (=C1)", "+Holland&B only(*)", "+Asymmetry only", "+Decay only"]
-    iso_results = [s1_res, s2_res, s3_res, s4_res]
+    iso_labels  = ["+Rmax only (=C1)", "+Holland&B only(*)", "+Asymmetry only", "+Decay only", "+Cap only"]
+    iso_results = [s1_res, s2_res, s3_res, s4_res, s5_res]
 
     iso_deltas, interaction = _print_and_return_table(
-        cumulative, iso_labels, iso_results, c0, c4
+        cumulative, iso_labels, iso_results, c0, c5
     )
 
     # -----------------------------------------------------------------------
     # Save CSV
     # -----------------------------------------------------------------------
-    _save_csvs(cumulative, iso_labels, iso_results, iso_deltas, interaction, c0, c4)
+    _save_csvs(cumulative, iso_labels, iso_results, iso_deltas, interaction, c0, c5)
 
     # -----------------------------------------------------------------------
     # Plot

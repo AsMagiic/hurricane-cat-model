@@ -163,6 +163,7 @@ _PHYSICS_OVERRIDES = {
     "CATMODEL_B_METHOD":              ("b_method",              frozenset({"constant", "vickery_wadhera"})),
     "CATMODEL_TRANSLATION_ASYMMETRY": ("translation_asymmetry", frozenset({"on", "off"})),
     "CATMODEL_DECAY_METHOD":          ("decay_method",          frozenset({"efold", "kaplan_demaria"})),
+    "CATMODEL_INTENSITY_CAP":         ("intensity_cap",         frozenset({"on", "off"})),
 }
 
 

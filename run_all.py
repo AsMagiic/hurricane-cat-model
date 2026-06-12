@@ -57,6 +57,14 @@ def main():
             "instead of 100,000.  Tests the entire pipeline end-to-end in ~15s."
         ),
     )
+    parser.add_argument(
+        "--results-dir", default="results",
+        help=(
+            "Directory for summary_metrics.csv output (default: results/). "
+            "Used by analysis/waterfall.py to isolate subprocess runs from the "
+            "production results/summary_metrics.csv."
+        ),
+    )
     args = parser.parse_args()
 
     py = sys.executable
@@ -64,6 +72,10 @@ def main():
     loss_cmd = [py, "-m", "model.loss"]
     if args.quick:
         loss_cmd.append("--quick")
+
+    summary_cmd = [py, "-m", "model.summary"]
+    if args.results_dir != "results":
+        summary_cmd += ["--results-dir", args.results_dir]
 
     steps = [
         ("Step 1 | Exposure generation   (data/generate_exposure.py)",
@@ -82,7 +94,7 @@ def main():
          [py, "-m", "model.reinsurance"]),
 
         ("Step 6 | Summary + master plot  (model/summary.py)",
-         [py, "-m", "model.summary"]),
+         summary_cmd),
     ]
 
     t_start = time.perf_counter()

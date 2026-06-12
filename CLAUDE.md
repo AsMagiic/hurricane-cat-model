@@ -21,9 +21,8 @@ This branch targets v3 — do not break v2 behaviour without a clear decision lo
 2. ~~**Wind model**~~ — DONE (Phase 2): Holland B, asymmetry, K-D decay,
    V&W Rmax — see Phase 2 outcomes below
 3. **Secondary uncertainty** — Beta-distributed damage ratios per event;
-   propagate epistemic uncertainty into EP bands. CURRENT PHASE — starts with
-   Step 3.0 (hazard corrections from Phase 2 closure review: 3.0a MPI intensity
-   cap, 3.0b stochastic WPR residual), then 3.1+.
+   propagate epistemic uncertainty into EP bands. CURRENT PHASE — Step 3.0a
+   (MPI intensity cap) DONE; next: 3.0b stochastic WPR residual, then 3.1+.
 4. **Exposure & financials** — OED exposure format (LocPerilsCovered, etc.);
    ELT and YLT outputs; reinstatements on XoL layers
 5. **Backtesting** — reproduce Andrew 1992 and Ian 2022 industry loss estimates
@@ -47,7 +46,7 @@ Python 3.11+, numpy, pandas, matplotlib, scipy, pyyaml, pytest
 - 2026-06-10 — renamed tower layers Working/Middle/Cat High → Layer 1/2/3 — "Working" implies a high-frequency attachment; this tower attaches at 60M (~1-in-25yr trigger), so the label was technically inaccurate
 - 2026-06-10 — v2 tower attachments (60/100/150M) are illustrative round numbers — to be re-anchored to OEP return periods in Phase 4 (Paso 4.1), with per-layer expected loss, ROL and reinstatements
 - 2026-06-12 — results/summary_metrics.csv was committed with stale numbers (waterfall Config-2 intermediate state, AAL 7.58M) — waterfall subprocesses write to the same production file as run_all.py; fixed in f5b378c by regenerating from clean HEAD (reproduced v3 baseline exactly)
-- 2026-06-12 — waterfall analysis runs must write to an isolated directory (results/waterfall/), never production summary_metrics.csv — to be implemented in Step 3.0a alongside anchor updates
+- 2026-06-12 — waterfall analysis runs must write to an isolated directory (results/waterfall/), never production summary_metrics.csv — implemented in Step 3.0a: `--results-dir results/waterfall` passed to run_all.py subprocesses; regression guard asserts prod mtime unchanged after sweep
 - 2026-06-12 — .gitignore `results/` changed to `results/*` — directory-level ignore made the `!results/summary_metrics.csv` negation dead letter (file was tracked only by legacy status)
 
 ## Phase 1 calibration outcomes (HURDAT2) — full rationale in config/model_v3.yaml `source:` fields
@@ -80,13 +79,24 @@ to the prior baseline:
 model_config.py (`_PHYSICS_OVERRIDES`) lets analysis runs toggle switches per
 subprocess — used by `analysis/waterfall.py`.
 
-**v3 full baseline (seed 42, 100k years, all switches at production default):**
+**Pre-3.0a v3 baseline (Phase 2 final, seed 42, 100k years, all Phase 2 switches on, cap off):**
 AAL gross 9,171,353 | OEP-100 113.44M | OEP-250 147.15M | AEP-100 122.69M |
-AEP-250 158.74M. Anchored in `analysis/waterfall.py::_V3_ANCHORS`
-(self-check diff=0.0000). Post-Phase-1 baseline (physics all legacy):
-AAL 3.58M. Waterfall: v2 → +Rmax V&W (−0.45M) → +Holland&B (+4.45M) →
-+asymmetry (+0.74M) → +decay K-D (+0.86M) → v3 (9.17M); tail interaction
+AEP-250 158.74M. Waterfall: v2 → +Rmax V&W (−0.45M) → +Holland&B (+4.45M) →
++asymmetry (+0.74M) → +decay K-D (+0.86M) → v3 pre-cap (9.17M); tail interaction
 sub-additive (−19.8M at OEP-250), measured not assumed.
+
+## Step 3.0a outcomes — DONE 2026-06-12
+Upper truncation of landfall intensity distribution at MPI = 165 kt (DeMaria &
+Kaplan 1994, ~163 kt at SST 30°C rounded up 2 kt). Switch: `intensity_cap` off|**on**
+(off = bit-identical to pre-3.0a; on = renormalized inverse-CDF truncation).
+
+**v3+3.0a baseline (seed 42, 100k years, all switches incl. cap=on):**
+AAL gross 9,151,137 | OEP-100 113.23M | OEP-250 146.88M | AEP-100 122.39M |
+AEP-250 158.69M. Anchored in `analysis/waterfall.py::_V3_ANCHORS` (Config 5,
+self-check diff=0.0000). Cap effect: ~0.45% of events affected; OEP-100 −0.21M,
+OEP-250 −0.27M vs pre-cap (gentle); "Max wind 243 kt / 280 mph" artifact gone.
+Also delivered: waterfall subprocess isolation (results/waterfall/ dir, regression
+guard in main()); `run_all.py --results-dir` and `model/summary.py --results-dir`.
 
 **Deferred backlog (documented limitations, verified zero loss impact):**
 - Asymmetry term `a·Vt` has no radial decay (clip verified sub-damage-threshold;

@@ -222,6 +222,8 @@ class TestRngRegression:
         monkeypatch.setattr(_hazard_mod, "_RMAX_METHOD", "uniform")
         monkeypatch.setattr(_hazard_mod, "_B_METHOD", "constant")
         monkeypatch.setattr(_hazard_mod, "_DECAY_METHOD", "efold")
+        monkeypatch.setattr(_hazard_mod, "_INTENSITY_CAP", "off")
+        monkeypatch.setattr(_hazard_mod, "_INT_P_UB", 1.0)
 
         rng = np.random.default_rng(42)
         track, meta = sample_storm(rng)

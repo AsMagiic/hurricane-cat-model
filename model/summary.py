@@ -24,6 +24,7 @@ Outputs
   outputs/ep_master.png         -- 2-panel AEP+OEP gross vs net plot
 """
 
+import argparse
 import os
 import numpy as np
 import pandas as pd
@@ -322,6 +323,23 @@ def _plot_ep_master(series, aal, pml, N_YEARS, out_dir):
 # Entry point
 # ---------------------------------------------------------------------------
 def main():
+    parser = argparse.ArgumentParser(description="Summary metrics (Step 6).")
+    parser.add_argument(
+        "--results-dir", default=None,
+        help=(
+            "Directory for summary_metrics.csv output. "
+            "Defaults to results/ next to the project root. "
+            "Pass a different path (e.g. results/waterfall/) to isolate "
+            "waterfall subprocess runs from the production file."
+        ),
+    )
+    args = parser.parse_args()
+    out_results_dir = (
+        os.path.join(_ROOT, args.results_dir) if args.results_dir
+        else RESULTS_DIR
+    )
+    os.makedirs(out_results_dir, exist_ok=True)
+
     print()
     print("=" * 64)
     print("SUMMARY  (Step 6)")
@@ -334,7 +352,7 @@ def main():
     series, aal, pml = _compute_metrics(annual_df, N_YEARS)
     _validate(aal, pml)
     _print_table(aal, pml, N_YEARS)
-    _save_csv(aal, pml, RESULTS_DIR)
+    _save_csv(aal, pml, out_results_dir)
     _plot_ep_master(series, aal, pml, N_YEARS, OUT_DIR)
 
     print()
