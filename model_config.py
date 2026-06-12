@@ -154,6 +154,40 @@ def _load(path):
 
 
 # ---------------------------------------------------------------------------
+# Physics-switch env-var overrides (Paso 2.4)
+# ---------------------------------------------------------------------------
+
+_PHYSICS_OVERRIDES = {
+    "CATMODEL_WIND_PROFILE":          ("wind_profile",          frozenset({"rankine", "holland"})),
+    "CATMODEL_RMAX_METHOD":           ("rmax_method",           frozenset({"uniform", "vickery_wadhera"})),
+    "CATMODEL_B_METHOD":              ("b_method",              frozenset({"constant", "vickery_wadhera"})),
+    "CATMODEL_TRANSLATION_ASYMMETRY": ("translation_asymmetry", frozenset({"on", "off"})),
+    "CATMODEL_DECAY_METHOD":          ("decay_method",          frozenset({"efold", "kaplan_demaria"})),
+}
+
+
+def _apply_physics_overrides(tree):
+    """Override hazard.physics switches from CATMODEL_* env vars. No-op if none are set."""
+    phys = tree.hazard.physics
+    for env_key, (attr, allowed) in _PHYSICS_OVERRIDES.items():
+        val = os.environ.get(env_key)
+        if val is None:
+            continue
+        if val not in allowed:
+            raise ValueError(
+                f"Environment variable {env_key}={val!r} is not a recognised value. "
+                f"Allowed: {sorted(allowed)}"
+            )
+        if not hasattr(phys, attr):
+            raise ValueError(
+                f"Environment variable {env_key} targets hazard.physics.{attr}, "
+                f"but that leaf does not exist in the materialized config tree. "
+                f"Check that config/model_v3.yaml contains hazard.physics.{attr}."
+            )
+        setattr(phys, attr, val)
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -164,7 +198,9 @@ def load_exposure_cfg():
 
 def load_model_cfg():
     """Load and validate config/model_v3.yaml.  Returns _NS."""
-    return _load(os.path.join(_CFG_DIR, "model_v3.yaml"))
+    tree = _load(os.path.join(_CFG_DIR, "model_v3.yaml"))
+    _apply_physics_overrides(tree)
+    return tree
 
 
 def load_calibration_cfg():
