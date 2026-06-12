@@ -28,17 +28,17 @@ A synthetic but plausible book: **1,000 coastal locations, USD 500M total insure
 
 | Metric (USD M) | AEP Gross | AEP Net | OEP Gross | OEP Net |
 |---|---:|---:|---:|---:|
-| Average Annual Loss | 9.17 | 7.72 | 8.49 | 7.05 |
-| PML 1-in-100 | 122.7 | 70.3 | 113.4 | 60.0 |
-| PML 1-in-250 | 158.7 | 90.8 | 147.1 | 60.0 |
+| Average Annual Loss | 9.15 | 7.71 | 8.47 | 7.04 |
+| PML 1-in-100 | 122.4 | 70.3 | 113.2 | 60.0 |
+| PML 1-in-250 | 158.7 | 90.6 | 146.9 | 60.0 |
 
 *AEP = Aggregate Exceedance Probability (full annual loss). OEP = Occurrence Exceedance Probability (largest single event of the year). Gross = before reinsurance; Net = after the XoL tower.*
 
 These are the **v3 numbers**: a hazard calibrated to HURDAT2 end-to-end — frequency, intensity, and landfall geography (Phase 1), and a physical wind field of Holland profiles, Vickery-Wadhera storm sizing, forward-motion asymmetry, and Kaplan-DeMaria inland decay (Phase 2). The AAL sits at **1.83% of TIV**, in the plausible range for a coastal Florida book. How the model evolved from its illustrative v2.0 baseline — and what each calibration step contributed — is documented in [Calibration: v2 → v3](#calibration-v2--v3).
 
-**Two independent validations.** The v3 PMLs (OEP 113.4M / 147.1M at 1-in-100 / 1-in-250) land close to the original v1 parametric reference (100M / 142M) — two entirely different model architectures converging on the same tail. And every component of the v2→v3 change is decomposed in an attribution waterfall whose endpoints reproduce the v2 and v3 totals exactly.
+**Two independent validations.** The v3 PMLs (OEP 113.2M / 146.9M at 1-in-100 / 1-in-250) land close to the original v1 parametric reference (100M / 142M) — two entirely different model architectures converging on the same tail. And every component of the v2→v3 change is decomposed in an attribution waterfall whose endpoints reproduce the v2 and v3 totals exactly.
 
-**What the reinsurance tower buys:** gross-to-net PML reduction of **−47.1% / −59.2%** on a per-occurrence basis (1-in-100 / 1-in-250). A detail worth reading off the numbers: the **OEP net flattens at exactly USD 60M at both return periods**. Because the contiguous tower covers every dollar from the 60M retention up to 200M exhaustion, any single event that pierces the programme leaves the insurer with exactly its 60M retention. The **AEP net does *not* flatten**, because a bad year can stack several retentions from multiple events, none of which individually triggers the full tower.
+**What the reinsurance tower buys:** gross-to-net PML reduction of **−47.0% / −59.2%** on a per-occurrence basis (1-in-100 / 1-in-250). A detail worth reading off the numbers: the **OEP net flattens at exactly USD 60M at both return periods**. Because the contiguous tower covers every dollar from the 60M retention up to 200M exhaustion, any single event that pierces the programme leaves the insurer with exactly its 60M retention. The **AEP net does *not* flatten**, because a bad year can stack several retentions from multiple events, none of which individually triggers the full tower.
 
 ---
 
@@ -194,7 +194,7 @@ The model executes a six-step pipeline (orchestrated by `run_all.py`), each step
 
 ### Reference parametric model (v1)
 
-The repository also retains the original **portfolio-aggregate** model — `model/aggregate_loss.py`, `model/ep_curve.py`, `model/sanity_check.py` — which modelled the same portfolio with a single compound-Poisson process: `N ~ Poisson(lambda)` events per year, each drawing a portfolio loss from a Lognormal severity. This is **not** the primary model; it is kept as an independent validation anchor. Reassuringly, the v2 spatial engine reproduced v1's Average Annual Loss to within ~2% (10.7M vs 10.5M) by an entirely different mechanism, and the calibrated v3 model independently lands close to v1's tail PMLs (OEP 113.4M / 147.1M vs 100M / 142M at 1-in-100 / 1-in-250) — two architectures converging on the same risk by entirely different routes, strong evidence the location-level chain is assembled correctly.
+The repository also retains the original **portfolio-aggregate** model — `model/aggregate_loss.py`, `model/ep_curve.py`, `model/sanity_check.py` — which modelled the same portfolio with a single compound-Poisson process: `N ~ Poisson(lambda)` events per year, each drawing a portfolio loss from a Lognormal severity. This is **not** the primary model; it is kept as an independent validation anchor. Reassuringly, the v2 spatial engine reproduced v1's Average Annual Loss to within ~2% (10.7M vs 10.5M) by an entirely different mechanism, and the calibrated v3 model independently lands close to v1's tail PMLs (OEP 113.2M / 146.9M vs 100M / 142M at 1-in-100 / 1-in-250) — two architectures converging on the same risk by entirely different routes, strong evidence the location-level chain is assembled correctly.
 
 ---
 
@@ -266,7 +266,7 @@ The `-sigma^2/2` correction offsets the upward pull of the tail so the arithmeti
 
 The headline table above is the model's output. Three things the numbers tell:
 
-**The value of reinsurance.** The gap between the gross and net curves is what the XoL programme buys. On a per-occurrence basis it removes 53.4M from the 1-in-100 single-event loss (113.4M -> 60.0M) and 87.1M from the 1-in-250 (147.1M -> 60.0M). The expected annual recovery — the technical floor of the programme's premium — is about USD 1.45M/year, concentrated in Layer 1 (which triggers in ~3.8% of years) and tapering to Layer 3 (~0.4% of years).
+**The value of reinsurance.** The gap between the gross and net curves is what the XoL programme buys. On a per-occurrence basis it removes 53.2M from the 1-in-100 single-event loss (113.2M -> 60.0M) and 86.9M from the 1-in-250 (146.9M -> 60.0M). The expected annual recovery — the technical floor of the programme's premium — is about USD 1.44M/year, concentrated in Layer 1 (which triggers in ~3.8% of years) and tapering to Layer 3 (~0.4% of years).
 
 **Vulnerability drives loss concentration.** Average Annual Loss by construction departs sharply from the share of value: Manufactured homes hold 8.7% of TIV but contribute **34.0%** of AAL (3.9x), while Reinforced Concrete holds 15.2% of TIV and just 2.8% of loss (0.2x). This is the construction-differentiated vulnerability working as intended.
 
