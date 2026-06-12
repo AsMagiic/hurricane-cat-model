@@ -52,7 +52,7 @@ Python 3.11+, numpy, pandas, matplotlib, scipy, pyyaml, pytest
 - 2026-06-12 — results/summary_metrics.csv was committed with stale numbers (waterfall Config-2 intermediate state, AAL 7.58M) — waterfall subprocesses write to the same production file as run_all.py; fixed in f5b378c by regenerating from clean HEAD (reproduced v3 baseline exactly)
 - 2026-06-12 — waterfall analysis runs must write to an isolated directory (results/waterfall/), never production summary_metrics.csv — implemented in Step 3.0a: `--results-dir results/waterfall` passed to run_all.py subprocesses; regression guard asserts prod mtime unchanged after sweep
 - 2026-06-12 — .gitignore `results/` changed to `results/*` — directory-level ignore made the `!results/summary_metrics.csv` negation dead letter (file was tracked only by legacy status)
-- 2026-06-12 — Step 3.0a DoD CLOSED — deep-tail audit complete (seed 42, 100k years, real runs, cap=off bit-identical to pre-3.0a baseline). OEP deltas at 1-in-100/250/500/1000: −0.21M/−0.27M/+0.25M/+0.54M; AEP deltas: −0.30M/−0.05M/−0.95M/−0.85M. OEP sign reverses at 1-in-500/1000 (renormalization boosts sub-cap events; see README table). README subsection verified (why truncation, MPI vs record, renormalization vs clipping, TVaR prerequisite). Next: Step 3.0b (stochastic WPR residual).
+- 2026-06-12 — Step 3.0a DoD CLOSED — deep-tail audit complete (seed 42, 100k years, real runs, cap=off bit-identical to pre-3.0a baseline). OEP deltas at 1-in-100/250/500/1000: −0.21M/−0.27M/+0.25M/+0.54M; AEP deltas: −0.30M/−0.05M/−0.95M/−0.85M. OEP sign reverses at 1-in-500/1000 via V&W Rmax coupling (capped storms have 5–18× larger Rmax, replacing sub-physical compact artifacts; 1,619/100k years have cap=on > cap=off, max excess 150M; +0.25M/+0.54M within bootstrap MC noise, CIs overlap). README subsection corrected (correct mechanism: V&W Rmax, not probability-mass redistribution). Next: Step 3.0b (stochastic WPR residual).
 
 ## Phase 1 calibration outcomes (HURDAT2) — full rationale in config/model_v3.yaml `source:` fields
 - **Frequency**: λ=0.6576/yr — Poisson GLM (log link), single covariate standardized AMO
@@ -101,9 +101,13 @@ AEP-250 158.69M. Anchored in `analysis/waterfall.py::_V3_ANCHORS` (Config 5,
 self-check diff=0.0000). Cap effect (cap=off → cap=on, real runs):
 OEP: −0.21M/−0.27M/+0.25M/+0.54M at 1-in-100/250/500/1000;
 AEP: −0.30M/−0.05M/−0.95M/−0.85M. Max event gross cap=off 323.36M / cap=on
-326.79M. OEP sign reverses at 1-in-500/1000: renormalization redistributes mass
-to sub-cap events, boosting near-ceiling intensities. "Max wind 243 kt / 280 mph"
-artifact gone. Also delivered: waterfall subprocess isolation (results/waterfall/
+326.79M. OEP sign reverses at 1-in-500/1000 via V&W Rmax coupling: uncapped 200–240 kt
+storms have Rmax 1–6 km (sub-physical, near-zero-loss artifacts); capping at
+165 kt expands Rmax 5–18× (lower Vmax → lower Δp → larger Rmax), turning
+compact near-misses into broad direct hits. 1,619/100k years have cap=on >
+cap=off (max excess 150 M). +0.25M/+0.54M diffs at 1-in-500/1000 are within
+bootstrap MC noise (5–10% of CI half-width; CIs overlap). "Max wind 243 kt /
+280 mph" artifact gone. Also delivered: waterfall subprocess isolation (results/waterfall/
 dir, regression guard in main()); `run_all.py --results-dir` and
 `model/summary.py --results-dir`.
 
@@ -112,6 +116,10 @@ dir, regression guard in main()); `run_all.py --results-dir` and
   refine by scaling with V_sym/Vmax if ever needed).
 - Coriolis latitude frozen at landfall along track (~10% f variation over
   300 km; trivial fix next time wind_field.py is touched — track carries lat_c).
+- MPI cap also bounds the V&W Rmax regression to its valid range — uncapped, the
+  lognormal tail extrapolates V&W to Δp>200 mb where it returns sub-physical Rmax
+  (1–6 km). Relevant to 3.0b WPR residual: the wind-pressure relationship and the
+  coupled Rmax share a validity domain.
 
 ## RNG discipline (Phase 2 onward — MANDATORY for all new stochastic physics)
 The legacy per-storm RNG stream is FROZEN. All new stochastic components
