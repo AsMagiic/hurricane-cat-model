@@ -2,13 +2,23 @@
 Stochastic hurricane hazard generator for Florida coastal portfolios.
 
 Generates synthetic storm tracks and computes the maximum sustained wind (mph)
-at each portfolio location via a moving-track modified Rankine vortex.
+at each portfolio location via a moving-track wind field.
 
-Key simplifications (documented; appropriate for a portfolio cat model demo):
-  - Track heading is drawn uniformly in ±45° of due north.  No east/west coast
-    steering distinction is modelled.
-  - Filling rate uses a single exponential decay (120 km e-folding scale).
-  - Rmax is constant along the track (no eyewall contraction).
+Wind field physics (v3, Phase 2):
+  - Holland (1980) gradient-balance profile, anchored to sampled Vmax, via
+    wind_field.py; storm size (Rmax) and profile shape (B) from Vickery &
+    Wadhera (2008), coupled to central-pressure deficit and latitude.
+  - Track heading regime-conditioned: von Mises per approach corridor
+    (Atlantic landfalls NW; Gulf landfalls NE), replacing the v2 uniform ±45°.
+  - Inland decay: Kaplan-DeMaria (1995), exponential in time since landfall
+    (t = cum_dist_km / vt_kmh, h), replacing the v2 120 km e-folding scale.
+
+Simplifications that remain:
+  - Rmax, B, and Δp frozen at landfall values; no mid-track eyewall
+    contraction or pressure fill-in.
+  - K-D decay applies along the full straight-line track, including if the
+    storm re-emerges over water (no land-mask turn-off).
+  - Coriolis latitude fixed at landfall latitude throughout the track.
 """
 
 import os
@@ -61,7 +71,7 @@ _RMAX_MAX_KM  = float(_mcfg.hazard.rmax_km_max)
 # Kaplan-DeMaria (1995) inland decay constants (Paso 2.3)
 _DECAY_METHOD = str(_mcfg.hazard.physics.decay_method)          # "efold" | "kaplan_demaria"
 _KD_ALPHA     = float(_mcfg.hazard.physics.kd_alpha)             # 0.095 h^-1
-_KD_VB_MPH    = float(_mcfg.hazard.physics.kd_vb_kt) * 1.15078  # 26.7 kt -> 30.726 mph
+_KD_VB_MPH    = float(kt_to_mph(_mcfg.hazard.physics.kd_vb_kt))  # 26.7 kt -> mph  (exact: 1852/1609.344; delta vs old 1.15078 ≈ −0.000015 mph)
 _VT_MIN_KMH   = float(_mcfg.hazard.physics.vt_min_kmh)           # 2.0 km/h floor
 
 # Physics switches — "uniform"|"vickery_wadhera" for rmax; "constant"|"vickery_wadhera" for b.

@@ -3,7 +3,7 @@ Tests for Kaplan-DeMaria (1995) inland decay in model/hazard.py.
 
 Formula: V(t) = Vb + (V0 - Vb) * exp(-alpha * t)
   V0    = landfall Vmax [mph], R=1 (landfall-anchor, Jing-Lin 2019 convention)
-  Vb    = 26.7 kt * 1.15078 = 30.726 mph background wind
+  Vb    = kt_to_mph(26.7 kt)  [exact: 26.7 × 1852/1609.344] ≈ 30.726 mph background wind
   alpha = 0.095 h^-1
   t     = cum_dist_km / vt_kmh  [h]   (km / (km/h) = h, alpha in h^-1 -> consistent)
 """

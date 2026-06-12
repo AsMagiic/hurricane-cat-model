@@ -11,6 +11,7 @@ import numpy as np
 
 from model_config import load_model_cfg
 from model.geo_utils import haversine, bearing
+from model.units import kmh_to_mph
 
 _mcfg         = load_model_cfg()
 _OUTER_DECAY  = float(_mcfg.hazard.outer_decay_exponent)
@@ -51,15 +52,17 @@ class StormParams:
     """
     Per-storm wind-field parameters.
 
-    Fields active (Paso 2.1b):
+    All six fields are active:
         rmax        : float -- radius of maximum winds (km)
-        b           : float -- Holland B parameter (dimensionless); required > 0 for Holland
-        dp_mb       : float -- central pressure deficit (mb); required for Holland gradient formula
-        lat         : float -- storm latitude (degrees); Coriolis parameter for Holland
-
-    Placeholder fields for upcoming steps (default to 0.0; callers do not set them yet):
-        heading_deg : float -- meteorological bearing (deg CW from N); Paso 2.2
-        vt_kmh      : float -- translation speed (km/h);               Paso 2.2
+        b           : float -- Holland B parameter (dimensionless); must be > 0 for Holland
+        dp_mb       : float -- central pressure deficit (mb)
+        lat         : float -- landfall latitude (degrees N); Coriolis parameter for Holland;
+                               held fixed along the straight-line track
+        heading_deg : float -- meteorological bearing (deg CW from N, 0=N, 90=E); consumed
+                               by _apply_asymmetry in wind_at_locations (Paso 2.2)
+        vt_kmh      : float -- translation speed (km/h); consumed by _apply_asymmetry
+                               (converted to mph via kmh_to_mph) and by build_track for
+                               K-D decay (t = cum_dist_km / vt_kmh [h]) (Paso 2.3)
     """
     rmax:        float
     heading_deg: float = 0.0
@@ -108,7 +111,7 @@ def _holland(d: np.ndarray, rmax: float, vmax_step: float, b: float,
     """
     dp_pa  = dp_mb * 100.0                                      # mb -> Pa
     rmax_m = rmax * 1000.0                                      # km -> m
-    f      = 2.0 * 7.292e-5 * np.sin(np.radians(lat))          # Coriolis, s^-1
+    f      = 2.0 * 7.292e-5 * np.sin(np.radians(lat))          # Coriolis, s^-1; lat = landfall lat, fixed along track
 
     # Pressure term: use safe_d (d=0 -> r=inf -> x=0 -> pressure_term=0)
     safe_d    = np.where(d > 0, d, np.inf)
@@ -176,6 +179,9 @@ def _apply_asymmetry(wind_sym: np.ndarray, bearing_deg: np.ndarray,
     -------
     wind_asym : ndarray, mph
     """
+    # a·Vt term is uniform on the right half-plane (no radial decay); the
+    # max(0,…) clip confines any negative result to the sub-damage-threshold
+    # periphery — see test_clip_only_below_damage_threshold.
     delta = np.radians(bearing_deg - heading_deg)
     return np.maximum(0.0, wind_sym + a * vt_mph * np.sin(delta))
 
@@ -208,7 +214,7 @@ def wind_at_locations(track: np.ndarray, storm_params: StormParams,
             wind = _rankine(d, storm_params.rmax, vmax_step, _OUTER_DECAY)
         if _ASYMMETRY_ON:
             brg    = bearing(lat_c, lon_c, lats, lons)
-            vt_mph = storm_params.vt_kmh * 0.621371   # km/h -> mph
+            vt_mph = float(kmh_to_mph(storm_params.vt_kmh))  # km/h -> mph
             wind   = _apply_asymmetry(wind, brg, storm_params.heading_deg, vt_mph, _ASYM_FRAC)
         np.maximum(max_wind, wind, out=max_wind)
 

@@ -81,3 +81,21 @@ def mph_to_kt(v_mph):
     v_kt : ndarray or scalar    -- wind speed in knots (kt)
     """
     return np.asarray(v_mph, dtype=float) / _KT_TO_MPH
+
+
+_KMH_TO_MPH = 1000.0 / 1609.344  # exact: 1 km/h = 1000 m / 1609.344 m/mile
+
+
+def kmh_to_mph(v_kmh):
+    """
+    Convert speed from kilometres per hour (km/h) to miles per hour (mph).
+
+    Parameters
+    ----------
+    v_kmh : float or array-like  -- speed in km/h
+
+    Returns
+    -------
+    v_mph : ndarray or scalar    -- speed in mph
+    """
+    return np.asarray(v_kmh, dtype=float) * _KMH_TO_MPH
