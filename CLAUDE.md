@@ -23,8 +23,8 @@ This branch targets v3 — do not break v2 behaviour without a clear decision lo
 3. **Secondary uncertainty** — Beta-distributed damage ratios per event;
    propagate epistemic uncertainty into EP bands. CURRENT PHASE — Step 3.0a
    (MPI intensity cap) DONE; Step 3.0b (stochastic WPR residual) DONE (ships off
-   by default, blocked on 3.0c Rmax floor); next: 3.0c physical Rmax floor (~8 km),
-   then 3.1 Beta-distributed damage ratios.
+   by default); Step 3.0c (physical Rmax floor) DONE (on by default, unblocks
+   wpr=on sub-physical concern); next: 3.1 Beta-distributed damage ratios.
 4. **Exposure & financials** — OED exposure format (LocPerilsCovered, etc.);
    ELT and YLT outputs; reinstatements on XoL layers
 5. **Backtesting** — reproduce Andrew 1992 and Ian 2022 industry loss estimates
@@ -57,7 +57,7 @@ Python 3.11+, numpy, pandas, matplotlib, scipy, pyyaml, pytest
 - 2026-06-12 — Step 3.0a DoD CLOSED — deep-tail audit complete (seed 42, 100k years, real runs, cap=off bit-identical to pre-3.0a baseline). OEP deltas at 1-in-100/250/500/1000: −0.21M/−0.27M/+0.25M/+0.54M; AEP deltas: −0.30M/−0.05M/−0.95M/−0.85M. OEP sign reverses at 1-in-500/1000 via V&W Rmax coupling (capped storms have 5–18× larger Rmax, replacing sub-physical compact artifacts; 1,619/100k years have cap=on > cap=off, max excess 150M; +0.25M/+0.54M within bootstrap MC noise, CIs overlap). README subsection corrected (correct mechanism: V&W Rmax, not probability-mass redistribution). Next: Step 3.0b (stochastic WPR residual).
 - 2026-06-12 — Step 3.0b: nested spawn architecture is the canonical pattern for adding a new stochastic physics component without perturbing existing streams. `vw_rng = rng.spawn(1)[0]` (same slot per storm as before); `wpr_rng = vw_rng.spawn(1)[0]` (nested child — vw_rng.spawn() does not consume vw_rng's bitgenerator variates). spawn(2) from the parent RNG does NOT work — it increments the parent's n_children_spawned by 2 per storm, so storm N's children use different slots than before. Nested spawn from a child is the correct pattern.
 - 2026-06-12 — Step 3.0b DoD CLOSED — stochastic WPR residual implemented and tested. Ships off by default (wpr=off bit-identical to 3.0a baseline; _V3_ANCHORS unchanged). wpr=on effect: AAL −0.259M (−2.8%), OEP-100 −3.1M, OEP-250 −0.4M, OEP-500 +4.8M, OEP-1000 +10.4M. Sign reverses between 250 and 500 — variance dominates at deep tail. Sub-physical Rmax (< 8 km): 153/100k storms (0.153%, min 1.2 km) under wpr=on. wpr=on NOT production-ready: deferred to Step 3.0c physical Rmax floor. Config 6 added to waterfall.
-- 2026-06-12 — Step 3.0c: physical Rmax floor (~8 km observational limit, no observed TC has Rmax < 8 km) — V&W extrapolates to sub-physical Rmax at high Δp; the WPR residual (Step 3.0b) makes this material for high-ε draws near the 165 kt cap (153/100k storms, min Rmax 1.2 km). MEDIUM priority (upgrade from low). Required before wpr=on is production-ready.
+- 2026-06-12 — Step 3.0c DoD CLOSED — physical Rmax floor (8 km, on by default) implemented and tested. floor=off bit-identical to post-3.0b baseline; identity confirmed by reconciliation run (B raw<8km=99 == C floored=99, same 65,759-storm event count across all three scenarios, pure max() with zero RNG draws). Production baseline shift: AAL +$82,612 (+0.001%); all OEP/AEP quantiles unchanged (4 floored storms too compact to register at any return period). Under wpr=on+floor=on: min Rmax=8.000 km exactly, 0 storms < 8 km — 3.0c unblocks wpr=on for sub-physical concern. Remaining wpr=on question: mean vs median Δp centering (open design decision from 3.0b). Also corrected stale CLAUDE.md counts: 153→99 and min 1.2 km→0.920 km (the 153 was a 3.0a backlog projection transcribed unverified into 3.0b outcomes; real seed=42 100k-year run gives 99). Next: Step 3.1 Beta-distributed damage ratios.
 - 2026-06-12 — 3.0b Jensen question RESOLVED: wind_pressure.py fits via np.polyfit on ln(Δp)~ln(Vmax), no bias correction → coefficient `a` = exp(E[ln Δp]) = MEDIAN of conditional Δp. Therefore Δp = a·Vmax^b · exp(ε) is correct and needs NO −σ²/2 centering: the deterministic line was the median, and exp(ε) recovers the full distribution whose mean is median·exp(σ²/2). The +3% Jensen shift is not a bug — it corrects a pre-existing UNDER-estimate of mean Δp by the deterministic (median-based) implementation. Residual is statistically honest as-is. OPEN DESIGN DECISION (deferred to after 3.0c): should production (wpr=on) use the mean (current behavior, statistically unbiased for expected loss) or be re-centered to preserve the old median? Defer until the Rmax floor exists, since part of the +3% Δp mass lands in sub-physical Rmax that the floor will reshape — deciding the Δp center before the floor would be deciding on numbers that will change.
 
 ## Phase 1 calibration outcomes (HURDAT2) — full rationale in config/model_v3.yaml `source:` fields
@@ -123,10 +123,10 @@ dir, regression guard in main()); `run_all.py --results-dir` and
 - Coriolis latitude frozen at landfall along track (~10% f variation over
   300 km; trivial fix next time wind_field.py is touched — track carries lat_c).
 - MPI cap bounds the uncapped lognormal Δp tail but does NOT bound Δp when the WPR
-  residual (wpr=on) amplifies it via high-ε draws. Under wpr=on: 153/100k storms have
-  Rmax < 8 km (min 1.2 km) — the sub-physical Rmax artefact is reintroduced. DEFERRED
-  to Step 3.0c: physical Rmax floor (~8 km). MEDIUM priority (was low for 3.0a, elevated
-  by 3.0b making it material).
+  residual (wpr=on) amplifies it via high-ε draws. Under wpr=on: 99/100k storms have
+  Rmax < 8 km (min 0.920 km) — the sub-physical Rmax artefact is reintroduced. RESOLVED
+  by Step 3.0c: physical Rmax floor (8 km, on by default). (Note: the original entry
+  cited 153/min 1.2 km — those were unverified projections; real run corrected in 3.0c.)
 
 ## Step 3.0b outcomes — DONE 2026-06-12
 Stochastic WPR residual: Δp = a·Vmax^b · exp(ε), ε ~ N(0, σ²), σ=0.2458.
@@ -140,10 +140,42 @@ Same as 3.0a: AAL gross 9,151,137 | OEP-100 113.23M | OEP-250 146.88M | AEP-100 
 AAL gross 8.892M (−0.259M, −2.8%); OEP deltas: −3.1M/−0.4M/+4.8M/+10.4M at 1-in-100/250/500/1000;
 AEP deltas: −3.0M/+0.1M/+4.0M/+11.7M. Jensen bias drives AAL down (mean Δp +3.1%, mean Rmax decreases);
 variance inflation dominates at 1-in-500/1000 (low-ε draws → very large Rmax → large footprint losses).
-Sub-physical Rmax: 153/100k storms (0.153%) have Rmax < 8 km under wpr=on (min 1.2 km).
+Sub-physical Rmax: 99/100k storms (0.099%) have Rmax < 8 km under wpr=on (min 0.920 km).
+(Corrected in Step 3.0c: original 153/1.2 km were unverified projections from 3.0a backlog.)
 Config 6 (wpr=on) added to waterfall; self-check still passes for Config 5 (diff=0.0000).
 RNG: nested spawn (`wpr_rng = vw_rng.spawn(1)[0]`) — see RNG discipline section above.
 tests/test_wpr_residual.py: 6 tests (bit-identical sequence, ε stats, Jensen bias, substream independence, draw discipline).
+
+## Step 3.0c outcomes — DONE 2026-06-12
+Physical Rmax floor: Rmax = max(Rmax_vw, 8 km), applied after `_vw_rmax_sample` and
+before `_vw_b_sample` so B couples to the floored radius. Switch: `rmax_floor` off|**on**
+(off = bit-identical to post-3.0b baseline; on = censoring floor applied).
+rmax_floor=on is production default (correct physics; sub-floor storms are near-zero-loss
+compact near-misses — atom at 8 km introduces no material metric distortion).
+No new RNG draws; floor=off identity proven by recon_30c.py (B raw<8km=99 == C floored=99).
+
+**v3+3.0c baseline (seed 42, 100k years, all switches incl. floor=on, wpr=off):**
+AAL gross 9,151,220 | OEP-100 113.23M | OEP-250 146.88M | AEP-100 122.39M |
+AEP-250 158.69M. Anchored in `analysis/waterfall.py::_V3_ANCHORS` (Config 7,
+self-check diff=0.0000). Floor effect (floor=off → floor=on, wpr=off): AAL +$82,612
+(+0.001%); OEP/AEP: 0.0000M change at all return periods. 4 storms floored (raw Rmax
+6.658–7.9 km → 8.0 km); none large enough to move any return-period rank.
+
+**wpr=on+floor=on validation (seed 42, 100k years):**
+Min Rmax = 8.000 km; 99 storms floored; 0 storms < 8 km — 3.0c unblocks wpr=on for
+the sub-physical Rmax concern. Metrics: AAL 8.8943M (−0.257M vs floor=on+wpr=off);
+OEP-100 110.10M (−3.12M); OEP-500 174.08M (+4.81M); OEP-1000 201.44M (+10.36M).
+Deep-tail variance dominates, consistent with 3.0b findings. Remaining wpr=on question:
+mean vs median Δp centering (open design decision deferred to 3.1).
+
+**3.0b stale count corrected:**
+153/100k (min 1.2 km) in 3.0a backlog and 3.0b outcomes were an unverified projection
+from 3.0a carried forward without a real run. recon_30c.py (seed=42, 100k years, wpr=on,
+floor=off) confirms: 99 storms, min Rmax 0.920 km. Both entries corrected in this commit.
+
+tests/test_rmax_floor.py: 6 tests (floor=off bit-identity, floor switch, AAL direction,
+B coupling to floored Rmax — deterministic at _FLOOR_KM_TEST=40 km, 3/10 storms trigger,
+no conditional skip). Config 7 (floor=on, wpr=off) added to waterfall.
 
 ## RNG discipline (Phase 2 onward — MANDATORY for all new stochastic physics)
 The legacy per-storm RNG stream is FROZEN. All new stochastic components draw

@@ -124,6 +124,12 @@ assert _WPR_RESIDUAL in {"on", "off"}, (
     f"hazard.physics.wpr_residual must be 'on' or 'off'; got {_WPR_RESIDUAL!r}"
 )
 
+_RMAX_FLOOR_KM = float(_mcfg.hazard.rmax_floor_km)       # 8.0 km — V&W observed lower bound
+_RMAX_FLOOR    = str(_mcfg.hazard.physics.rmax_floor)     # "on" | "off"
+assert _RMAX_FLOOR in {"on", "off"}, (
+    f"hazard.physics.rmax_floor must be 'on' or 'off'; got {_RMAX_FLOOR!r}"
+)
+
 # ---------------------------------------------------------------------------
 # Calibrated landfall geography + regime parameters  (Step 1.5b)
 # ---------------------------------------------------------------------------
@@ -367,7 +373,7 @@ def sample_storm(rng):
     """
     Sample one complete storm (track + metadata).
 
-    RNG discipline (Phase 2 / Step 3.0b):
+    RNG discipline (Phase 2 / Steps 3.0b–3.0c):
         Legacy stream draws (in order): sample_landfall x2 (integer+normal),
         vonmises, gamma, sample_intensity, then rng.uniform(30,55) ONLY when
         rmax_method='uniform'.  All new physics draw from dedicated substreams:
@@ -378,6 +384,8 @@ def sample_storm(rng):
                     wpr_rng does NOT affect rng's spawn-slot counter or vw_rng's
                     bitgenerator state. 1 draw when wpr_residual='on';
                     spawned-and-unused when 'off'.
+          rmax_floor (3.0c): pure max() on the V&W Rmax sample — no new draws.
+                    floor=off is bit-identical to the post-3.0b baseline.
         spawn() uses SeedSequence counters and does NOT consume bitgenerator
         variates from the parent, so all legacy streams are unperturbed.
 
@@ -428,6 +436,8 @@ def sample_storm(rng):
         rmax_km = float(rng.uniform(_RMAX_MIN_KM, _RMAX_MAX_KM))   # rng draw 6
     else:  # "vickery_wadhera"
         rmax_km = _vw_rmax_sample(dp_mb, lat_lf, vw_rng)            # vw_rng draw 1
+        if _RMAX_FLOOR == "on":
+            rmax_km = max(rmax_km, _RMAX_FLOOR_KM)                  # no new draws
 
     if _B_METHOD == "constant":
         b = 0.0

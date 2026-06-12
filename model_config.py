@@ -165,6 +165,7 @@ _PHYSICS_OVERRIDES = {
     "CATMODEL_DECAY_METHOD":          ("decay_method",          frozenset({"efold", "kaplan_demaria"})),
     "CATMODEL_INTENSITY_CAP":         ("intensity_cap",         frozenset({"on", "off"})),
     "CATMODEL_WPR_RESIDUAL":          ("wpr_residual",          frozenset({"on", "off"})),
+    "CATMODEL_RMAX_FLOOR":            ("rmax_floor",            frozenset({"on", "off"})),
 }
 
 

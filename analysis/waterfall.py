@@ -52,6 +52,7 @@ _AS = "CATMODEL_TRANSLATION_ASYMMETRY"
 _DC = "CATMODEL_DECAY_METHOD"
 _IC = "CATMODEL_INTENSITY_CAP"
 _WR = "CATMODEL_WPR_RESIDUAL"
+_RF = "CATMODEL_RMAX_FLOOR"
 
 MAIN_CONFIGS = [
     ("Config 0 -- v2 baseline",
@@ -65,10 +66,14 @@ MAIN_CONFIGS = [
     ("Config 4 -- +Decay (pre-cap)",
      {_WP: "holland",  _RM: "vickery_wadhera", _BM: "vickery_wadhera", _AS: "on",  _DC: "kaplan_demaria", _IC: "off"}),
     ("Config 5 -- +Intensity cap (v3+3.0a)",
-     {_WP: "holland",  _RM: "vickery_wadhera", _BM: "vickery_wadhera", _AS: "on",  _DC: "kaplan_demaria", _IC: "on"}),
-     # _WR absent -> defaults off; Config 5 is the production anchor, _V3_ANCHORS unchanged.
-    ("Config 6 -- +WPR residual (3.0b)",
-     {_WP: "holland",  _RM: "vickery_wadhera", _BM: "vickery_wadhera", _AS: "on",  _DC: "kaplan_demaria", _IC: "on", _WR: "on"}),
+     {_WP: "holland",  _RM: "vickery_wadhera", _BM: "vickery_wadhera", _AS: "on",  _DC: "kaplan_demaria", _IC: "on",  _RF: "off"}),
+     # _WR absent -> defaults off; _RF explicit "off" preserves 3.0a historical anchor.
+    ("Config 6 -- +WPR residual (3.0b diagnostic)",
+     {_WP: "holland",  _RM: "vickery_wadhera", _BM: "vickery_wadhera", _AS: "on",  _DC: "kaplan_demaria", _IC: "on",  _WR: "on"}),
+     # _RF absent -> defaults "on" (3.0c production default); Config 6 = wpr=on + floor=on.
+    ("Config 7 -- +Rmax floor (v3+3.0c)",
+     {_WP: "holland",  _RM: "vickery_wadhera", _BM: "vickery_wadhera", _AS: "on",  _DC: "kaplan_demaria", _IC: "on",  _RF: "on"}),
+     # _WR absent -> defaults off; Config 7 is the new production anchor.
 ]
 
 # One-at-a-time sensitivity: each component isolated from the v2 baseline.
@@ -95,7 +100,7 @@ SENSITIVITY_CONFIGS = [
 #   Updated from Phase 2 (9.171M) to Step 3.0a value after MPI cap is applied.
 #   Config 4 pre-cap numbers (Phase 2 v3 full): aal=9.171, oep100=113.44, oep250=147.15.
 _V2_ANCHORS = {"aal": 3.584,  "oep100":  58.28, "oep250":  84.85}
-_V3_ANCHORS = {"aal": 9.151,  "oep100": 113.23, "oep250": 146.88}  # Config 5 (v3+3.0a, cap=on, seed=42, 100k years)
+_V3_ANCHORS = {"aal": 9.1512, "oep100": 113.2268, "oep250": 146.8754}  # Config 7 (v3+3.0c, floor=on, wpr=off, seed=42, 100k years)
 _ANCHOR_TOL = {"aal": 0.005,  "oep100":   0.05, "oep250":   0.05}
 
 # ---------------------------------------------------------------------------
@@ -218,7 +223,7 @@ def _print_and_return_table(cumulative, iso_labels, iso_results, c0, c4):
     total = {m: c4[m] - c0[m] for m in METRICS}
     print(dashes)
     print(
-        f"  {'Total v2->v3+3.0a (prod)':<28}"
+        f"  {'Total v2->v3+3.0c (prod)':<28}"
         f"{'':>10}{_fmt_d(total['aal']):>10}"
         f"  {'':>10}{_fmt_d(total['oep100']):>11}"
         f"  {'':>10}{_fmt_d(total['oep250']):>11}"
@@ -324,10 +329,11 @@ _STEP_COLORS = [
     "#55A868",  # +Asymmetry
     "#C44E52",  # +Decay (K-D)
     "#9B59B6",  # +Intensity cap (MPI)
-    "#17BECF",  # +WPR residual (3.0b)
+    "#17BECF",  # +WPR residual (3.0b, diagnostic)
+    "#2CA02C",  # +Rmax floor (3.0c)
 ]
-_STEP_XLABELS = ["v2\n(base)", "+Rmax\nV&W", "+Holland\n& B", "+Asym", "+Decay", "+Cap\n(MPI)", "+WPR\n(3.0b)"]
-_LEGEND_LABELS = ["v2 baseline", "+Rmax V&W", "+Holland & B", "+Asymmetry", "+Decay (K-D)", "+Intensity cap (MPI)", "+WPR residual (3.0b)"]
+_STEP_XLABELS = ["v2\n(base)", "+Rmax\nV&W", "+Holland\n& B", "+Asym", "+Decay", "+Cap\n(MPI)", "+WPR\n(3.0b)", "+Floor\n(3.0c)"]
+_LEGEND_LABELS = ["v2 baseline", "+Rmax V&W", "+Holland & B", "+Asymmetry", "+Decay (K-D)", "+Intensity cap (MPI)", "+WPR residual (3.0b)", "+Rmax floor (3.0c)"]
 
 
 def _plot_waterfall(cumulative, out_path):
@@ -414,7 +420,7 @@ def main():
 
     print()
     print("=" * 60)
-    print("  Attribution Waterfall  --  11 subprocess configs")
+    print("  Attribution Waterfall  --  12 subprocess configs")
     mode = "--quick (1k years, MC noise expected)" if args.quick else "full 100k years"
     print(f"  Mode: {mode}")
     print("=" * 60)
@@ -426,7 +432,7 @@ def main():
     main_results = []
     for label, config_env in MAIN_CONFIGS:
         main_results.append(_run_config(label, config_env, run_all_args))
-    c0, c1, c2, c3, c4, c5, c6 = main_results  # noqa: F841 (c2-c4 unused directly but kept for clarity)
+    c0, c1, c2, c3, c4, c5, c6, c7 = main_results  # noqa: F841 (c2-c4 unused directly but kept for clarity)
 
     # -----------------------------------------------------------------------
     # 4 sensitivity configs  (S1 = c1, no extra subprocess)
@@ -457,7 +463,7 @@ def main():
         failed = False
         for conf_label, result, anchor in [
             ("Config 0 (v2)",       c0, _V2_ANCHORS),
-            ("Config 5 (v3+3.0a)", c5, _V3_ANCHORS),
+            ("Config 7 (v3+3.0c)", c7, _V3_ANCHORS),
         ]:
             for key in METRICS:
                 diff = abs(result[key] - anchor[key])
@@ -481,17 +487,18 @@ def main():
     # Build attribution and print table
     # -----------------------------------------------------------------------
     cumulative = list(zip(
-        ["v2 baseline", "+Rmax V&W", "+Holland & B", "+Asymmetry", "+Decay", "+Cap (MPI)", "+WPR residual (3.0b)"],
+        ["v2 baseline", "+Rmax V&W", "+Holland & B", "+Asymmetry", "+Decay", "+Cap (MPI)", "+WPR residual (3.0b)", "+Rmax floor (3.0c)"],
         main_results,
     ))
-    # Note: _print_and_return_table receives c5 (not c6) as its last arg so that
-    # "Total v2 -> v3" = c5 - c0 (production baseline).  The WPR row appears in the
-    # cumulative table; its isolated delta (c6 - c5) is visible from the dAAL/dOEP columns.
+    # Note: _print_and_return_table receives c7 (not c6) as its last arg so that
+    # "Total v2 -> v3" = c7 - c0 (production baseline, v3+3.0c).  The WPR row
+    # (Config 6, wpr=on + floor=on) appears in the cumulative table as a diagnostic;
+    # its isolated delta (c6 - c5) is visible from the dAAL/dOEP columns.
     iso_labels  = ["+Rmax only (=C1)", "+Holland&B only(*)", "+Asymmetry only", "+Decay only", "+Cap only"]
     iso_results = [s1_res, s2_res, s3_res, s4_res, s5_res]
 
     iso_deltas, interaction = _print_and_return_table(
-        cumulative, iso_labels, iso_results, c0, c5
+        cumulative, iso_labels, iso_results, c0, c7
     )
 
     # -----------------------------------------------------------------------

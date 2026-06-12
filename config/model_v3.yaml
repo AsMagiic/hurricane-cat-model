@@ -126,6 +126,10 @@ hazard:
     value: 55.0
     units: "km"
     source: "illustrative (v2)"
+  rmax_floor_km:
+    value: 8.0
+    units: "km"
+    source: "Step 3.0c. Physical lower limit on V&W Rmax sampling from the Vickery & Wadhera (2008) ERDC TR-08-06 observed Atlantic TC record: no observed tropical cyclone has Rmax < ~8 km. V&W eq. (13) extrapolates to sub-physical Rmax at high Δp (amplified by wpr_residual at cap-level storms; 153/100k storms under wpr=on, 4/100k under wpr=off). Floor applied as simple censoring (clip) after _vw_rmax_sample and before _vw_b_sample, so Holland B couples to the physical Rmax. Active when hazard.physics.rmax_floor='on'."
 
   landfall_geography:
     coastline_path:
@@ -339,7 +343,11 @@ hazard:
     wpr_residual:
       value: "off"
       units: "switch"
-      source: "Step 3.0b. Stochastic WPR scatter: Δp = a·Vmax^b · exp(ε), ε ~ N(0, sigma_log²), sigma_log from wind_pressure.sigma_log (0.2458). 'off': deterministic Δp = a·Vmax^b, bit-identical to v3+3.0a baseline (Rmax/B streams unaffected; spawn architecture unchanged). 'on': adds lognormal multiplicative noise on Δp, propagating into Rmax and B via the V&W causal chain. Jensen bias: E[exp(ε)] = exp(sigma_log²/2) ≈ 1.031, so mean Δp shifts +3% upward (mean Rmax slightly smaller, tail fattened). Does NOT touch the Holland amplitude (anchored to Vmax, Phase-2 decision). NOT production-ready alone: at high ε near the 165 kt cap, V&W extrapolates to sub-physical Rmax (<8 km); a physical Rmax floor is deferred to Step 3.0c. Ships off by default. Env-var override: CATMODEL_WPR_RESIDUAL. See model/hazard.py."
+      source: "Step 3.0b. Stochastic WPR scatter: Δp = a·Vmax^b · exp(ε), ε ~ N(0, sigma_log²), sigma_log from wind_pressure.sigma_log (0.2458). 'off': deterministic Δp = a·Vmax^b, bit-identical to v3+3.0a baseline (Rmax/B streams unaffected; spawn architecture unchanged). 'on': adds lognormal multiplicative noise on Δp, propagating into Rmax and B via the V&W causal chain. Jensen bias: E[exp(ε)] = exp(sigma_log²/2) ≈ 1.031, so mean Δp shifts +3% upward (mean Rmax slightly smaller, tail fattened). Does NOT touch the Holland amplitude (anchored to Vmax, Phase-2 decision). Ships off by default. Env-var override: CATMODEL_WPR_RESIDUAL. See model/hazard.py."
+    rmax_floor:
+      value: "on"
+      units: "switch"
+      source: "Step 3.0c. Physical Rmax floor for V&W Rmax sampling. 'off': no floor applied, bit-identical to post-3.0b baseline (4 sub-physical storms under wpr=off, 153 under wpr=on). 'on': Rmax = max(Rmax_vw, rmax_floor_km) applied after _vw_rmax_sample and before _vw_b_sample — B couples to physical Rmax, not sub-physical extrapolation. Censoring (clip), not renormalization: sub-physical storms are near-zero-loss compact near-misses (loss trivially small), so an atom at 8 km introduces no material metric distortion. No new RNG draws consumed; floor=off is bit-identical to post-3.0b baseline. Default 'on'; prerequisite for wpr_residual='on' production readiness. Env-var override: CATMODEL_RMAX_FLOOR. See model/hazard.py."
     kd_alpha:
       value: 0.095
       units: "h^-1"
