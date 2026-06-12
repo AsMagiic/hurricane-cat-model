@@ -11,7 +11,7 @@ outputs/hazard_catalog*.csv
 outputs/event_loss_table*.csv
 
 # Step 4+ simulation results (reproducible by seed; not committed)
-results/
+results/*
 !results/summary_metrics.csv
 
 # Virtual environments

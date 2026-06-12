@@ -16,12 +16,14 @@ This branch targets v3 — do not break v2 behaviour without a clear decision lo
 - Outputs: AEP/OEP gross+net EP curves, PML 1-in-100/250, AAL, ep_master.png
 
 ## v3 goals (in order)
-1. **Hazard calibration** — fit frequency/track parameters to HURDAT2; replace
-   illustrative lambda with basin-season empirical distribution
-2. **Wind model** — Holland B profile with translation asymmetry;
-   Kaplan-DeMaria inland decay applied along track
+1. ~~**Hazard calibration**~~ — DONE (Phase 1): GLM frequency, trunc-lognormal
+   intensity, KDE geography, regime headings — see Phase 1 outcomes below
+2. ~~**Wind model**~~ — DONE (Phase 2): Holland B, asymmetry, K-D decay,
+   V&W Rmax — see Phase 2 outcomes below
 3. **Secondary uncertainty** — Beta-distributed damage ratios per event;
-   propagate epistemic uncertainty into EP bands
+   propagate epistemic uncertainty into EP bands. CURRENT PHASE — starts with
+   Step 3.0 (hazard corrections from Phase 2 closure review: 3.0a MPI intensity
+   cap, 3.0b stochastic WPR residual), then 3.1+.
 4. **Exposure & financials** — OED exposure format (LocPerilsCovered, etc.);
    ELT and YLT outputs; reinstatements on XoL layers
 5. **Backtesting** — reproduce Andrew 1992 and Ian 2022 industry loss estimates
@@ -44,6 +46,9 @@ Python 3.11+, numpy, pandas, matplotlib, scipy, pyyaml, pytest
 <!-- Add entries as: `YYYY-MM-DD — decision — rationale` -->
 - 2026-06-10 — renamed tower layers Working/Middle/Cat High → Layer 1/2/3 — "Working" implies a high-frequency attachment; this tower attaches at 60M (~1-in-25yr trigger), so the label was technically inaccurate
 - 2026-06-10 — v2 tower attachments (60/100/150M) are illustrative round numbers — to be re-anchored to OEP return periods in Phase 4 (Paso 4.1), with per-layer expected loss, ROL and reinstatements
+- 2026-06-12 — results/summary_metrics.csv was committed with stale numbers (waterfall Config-2 intermediate state, AAL 7.58M) — waterfall subprocesses write to the same production file as run_all.py; fixed in f5b378c by regenerating from clean HEAD (reproduced v3 baseline exactly)
+- 2026-06-12 — waterfall analysis runs must write to an isolated directory (results/waterfall/), never production summary_metrics.csv — to be implemented in Step 3.0a alongside anchor updates
+- 2026-06-12 — .gitignore `results/` changed to `results/*` — directory-level ignore made the `!results/summary_metrics.csv` negation dead letter (file was tracked only by legacy status)
 
 ## Phase 1 calibration outcomes (HURDAT2) — full rationale in config/model_v3.yaml `source:` fields
 - **Frequency**: λ=0.6576/yr — Poisson GLM (log link), single covariate standardized AMO
@@ -62,15 +67,36 @@ Python 3.11+, numpy, pandas, matplotlib, scipy, pyyaml, pytest
   Gulf approach NE). Translation speed stored PER EVENT in catalogue metadata as
   `translation_speed_kmh`.
 
-## Phase 2 contract (read before touching wind physics)
-- `translation_speed_kmh` is ALREADY in catalogue metadata per event — Paso 2.2
-  (asymmetry) READS it, does not recompute it.
-- Current wind placeholders are intentionally illustrative, replaced ONLY in their
-  designated Phase 2 step — do not touch outside it:
-    - modified Rankine vortex (hazard.py)         → Holland (Paso 2.1)
-    - Rmax uniform(30,55) km, constant on track    → Vickery-Wadhera (Paso 2.3)
-    - e-folding decay 120 km                        → Kaplan-DeMaria (Paso 2.3)
-- **RNG discipline (Phase 2 onward)**: the legacy per-storm RNG stream is FROZEN. All
-  new stochastic physics (Holland B, asymmetry alpha, Rmax error term) draw from a
-  substream spawned UNCONDITIONALLY per storm (`rng.spawn(1)[0]`), so toggling any
-  physics switch off reproduces the baseline stream bit-for-bit.
+## Phase 2 outcomes — CLOSED 2026-06-12 (exhaustive 14-module review, no bugs found)
+All Phase 2 physics implemented behind config switches in `hazard.physics`
+(config/model_v3.yaml), each with an `off`/legacy branch that is bit-identical
+to the prior baseline:
+- `wind_profile`: rankine | **holland** (Holland 1980 gradient-balance profile)
+- `rmax_method`: uniform | **vickery_wadhera** (V&W 2008 eq. 13, lognormal error)
+- `b_method`: constant | **vickery_wadhera** (V&W 2008 eq. 14)
+- `translation_asymmetry`: off | **on** (a=0.5, Powell 1980 / HAZUS-MH)
+- `decay_method`: efold | **kaplan_demaria** (K-D 1995, DeMaria et al. 2006 coeffs)
+(bold = production default). Env-var override layer `CATMODEL_*` in
+model_config.py (`_PHYSICS_OVERRIDES`) lets analysis runs toggle switches per
+subprocess — used by `analysis/waterfall.py`.
+
+**v3 full baseline (seed 42, 100k years, all switches at production default):**
+AAL gross 9,171,353 | OEP-100 113.44M | OEP-250 147.15M | AEP-100 122.69M |
+AEP-250 158.74M. Anchored in `analysis/waterfall.py::_V3_ANCHORS`
+(self-check diff=0.0000). Post-Phase-1 baseline (physics all legacy):
+AAL 3.58M. Waterfall: v2 → +Rmax V&W (−0.45M) → +Holland&B (+4.45M) →
++asymmetry (+0.74M) → +decay K-D (+0.86M) → v3 (9.17M); tail interaction
+sub-additive (−19.8M at OEP-250), measured not assumed.
+
+**Deferred backlog (documented limitations, verified zero loss impact):**
+- Asymmetry term `a·Vt` has no radial decay (clip verified sub-damage-threshold;
+  refine by scaling with V_sym/Vmax if ever needed).
+- Coriolis latitude frozen at landfall along track (~10% f variation over
+  300 km; trivial fix next time wind_field.py is touched — track carries lat_c).
+
+## RNG discipline (Phase 2 onward — MANDATORY for all new stochastic physics)
+The legacy per-storm RNG stream is FROZEN. All new stochastic components
+(Holland B, Rmax error term, and anything added in Phase 3+) draw from a
+substream spawned UNCONDITIONALLY per storm (`rng.spawn(1)[0]`), so toggling
+any physics switch off reproduces the baseline stream bit-for-bit. Each
+sampler must consume a FIXED number of draws per call regardless of branch.
