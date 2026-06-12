@@ -121,17 +121,23 @@ The landfall distribution is doubly truncated: lower at 64 kt (the HU definition
 
 **Renormalization, not clipping.** The inverse-CDF sampler maps a uniform U∈[0,1) into [p_lb, p_ub] instead of [p_lb, 1). This redistributes probability mass within the valid range; the shape of the distribution below the cap is unchanged up to a renormalization factor < 0.5 mph for Cat1–3 draws (< 111 kt). Clipping (capping post-draw) would pile probability mass at the ceiling and distort the CDF.
 
-**Before/after tail (seed=42, 100k years):**
+**Before/after tail (seed=42, 100k years, real runs):**
 
-| Metric | Pre-cap (Phase 2) | Post-cap (Step 3.0a) | Δ |
+| Metric | cap=off (Phase 2) | cap=on (Step 3.0a) | Δ |
 |---|---:|---:|---:|
 | Max Vmax in catalog | ~280 mph (243 kt) | 189.9 mph (165 kt) | −90 mph |
 | Events above cap (%) | ~0.45% (~297/65k) | 0 | removed |
-| AAL gross | 9.171 M | **9.151 M** | −0.020 M |
-| OEP-100 | 113.44 M | **113.23 M** | −0.21 M |
-| OEP-250 | 147.15 M | **146.88 M** | −0.27 M |
+| Max event gross (M) | 323.36 | 326.79 | +3.43 |
+| AAL gross (M) | 9.171 | **9.151** | −0.020 |
 
-The OEP-100/250 change is within Monte Carlo noise for most actuarial purposes; the impact is concentrated at extreme return periods (1-in-1000+), where the ~297 events exceeding 165 kt were the primary driver of tail losses. This is a prerequisite for a defensible TVaR at the 1-in-1000 return period.
+| Return period | OEP cap=off | OEP cap=on | Δ OEP | AEP cap=off | AEP cap=on | Δ AEP |
+|---|---:|---:|---:|---:|---:|---:|
+| 1-in-100 | 113.44 M | **113.23 M** | −0.21 M | 122.69 M | **122.39 M** | −0.30 M |
+| 1-in-250 | 147.15 M | **146.88 M** | −0.27 M | 158.74 M | **158.69 M** | −0.05 M |
+| 1-in-500 | 169.02 M | **169.27 M** | +0.25 M | 182.47 M | **181.52 M** | −0.95 M |
+| 1-in-1000 | 190.54 M | **191.08 M** | +0.54 M | 205.08 M | **204.23 M** | −0.85 M |
+
+The per-occurrence (OEP) effect reverses sign at 1-in-500 and 1-in-1000: renormalization redistributes probability mass from the truncated tail into the sub-cap range, slightly boosting event intensities just below 165 kt — and at those deep return periods the boosted near-cap events dominate over the ~297 capped events. The aggregate (AEP) effect is uniformly downward across all return periods. The OEP-1000 shift of +0.54 M (<0.3% of PML) is within Monte Carlo noise at N=100k. The max event gross (cap=on: 326.79 M > cap=off: 323.36 M) reflects the same mechanism: renormalization lifts sub-cap events, and a different event becomes the single maximum. Removing the "243 kt / 280 mph" artifact and bounding the tail at a thermodynamically defensible ceiling is a prerequisite for a credible TVaR at the 1-in-1000 return period.
 
 ### Attribution waterfall — what each component contributes
 
