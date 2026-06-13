@@ -501,18 +501,8 @@ vulnerability:
       beta:   {value: 0.20,     units: "dimensionless", source: "calibration/fragility_thetas.py; CLAUDE.md Task 2a."}
       thetas: {value: [112.2759, 143.6503, 185.0, 226.7991], units: "mph_gust", source: "calibration/fragility_thetas.py; CLAUDE.md Task 2a."}
 
-reinsurance:
-  # Per-occurrence XoL layers.  TOTAL_CAPACITY and TOP_OF_TOWER are derived in code.
-  layers:
-    - name:       {value: "Layer 1", units: "label", source: "design choice (v2)"}
-      attachment: {value: 60000000,  units: "USD",   source: "illustrative (v2)"}
-      limit:      {value: 40000000,  units: "USD",   source: "illustrative (v2)"}
-    - name:       {value: "Layer 2", units: "label", source: "design choice (v2)"}
-      attachment: {value: 100000000, units: "USD",   source: "illustrative (v2)"}
-      limit:      {value: 50000000,  units: "USD",   source: "illustrative (v2)"}
-    - name:       {value: "Layer 3", units: "label", source: "design choice (v2)"}
-      attachment: {value: 150000000, units: "USD",   source: "illustrative (v2)"}
-      limit:      {value: 50000000,  units: "USD",   source: "illustrative (v2)"}
+# reinsurance block removed in Step 4.4 — migrated to config/reinsurance.yaml
+# which adds finite reinstatements and programme-cost fields.
 
 summary:
   return_periods:

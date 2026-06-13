@@ -1,9 +1,10 @@
 """
 Config loader for the Florida hurricane cat model.
 
-Reads config/exposure.yaml     -> load_exposure_cfg()
-Reads config/model_v3.yaml    -> load_model_cfg()
-Reads config/calibration.yaml -> load_calibration_cfg()
+Reads config/exposure.yaml      -> load_exposure_cfg()
+Reads config/model_v3.yaml      -> load_model_cfg()
+Reads config/calibration.yaml   -> load_calibration_cfg()
+Reads config/reinsurance.yaml   -> load_reinsurance_cfg()
 
 Every leaf entry {value, units, source} is validated at load time; the raw
 value is returned so callers see plain Python scalars/lists, not wrappers.
@@ -15,19 +16,25 @@ Attribute access
     ecfg.county_centroids     # dict {"Miami-Dade": [25.61, -80.40], ...}
 
     mcfg = load_model_cfg()
-    mcfg.simulation.seed      # int 42
-    mcfg.frequency.lambda_rate            # float 0.7
-    mcfg.hazard.coast_polyline            # list of [lat, lon] lists
-    mcfg.vulnerability.construction_params  # plain dict-of-dicts
-    mcfg.reinsurance.layers               # list of plain dicts
+    mcfg.simulation.seed                   # int 42
+    mcfg.frequency.lambda_rate             # float 0.7
+    mcfg.hazard.coast_polyline             # list of [lat, lon] lists
+    mcfg.vulnerability.construction_params # plain dict-of-dicts
+
+    rcfg = load_reinsurance_cfg()
+    rcfg.loading_factor                    # float 0.15
+    rcfg.layers                            # list of plain dicts
+      # each dict: {name, attachment, occ_limit, n_reinstatements,
+      #              reinstatement_premium_pct}
 
 Special-cased nodes (reconstructed as plain Python containers)
 --------------------------------------------------------------
   construction_params  ->  {type_name: {param: value}}
       Preserves space-separated key names ("Wood Frame", "Reinforced Concrete")
       so callers can index by CONSTRUCTION_PARAMS[construction].
-  reinsurance.layers   ->  [{name, attachment, limit}, ...]
-      Matches the list-of-dicts format the existing pipeline expects.
+  layers  ->  [{name, attachment, occ_limit, n_reinstatements,
+                reinstatement_premium_pct}, ...]
+      Matches the list-of-dicts format the reinsurance engine expects.
 
 Path conventions
 ----------------
@@ -146,13 +153,16 @@ def _materialize_layers(lst, path):
     """
     Reconstruct reinsurance layers as a list of plain dicts.
 
-    Input YAML shape (list):
-        - name:       {value: ..., units: ..., source: ...}
-          attachment: {value: ..., units: ..., source: ...}
-          limit:      {value: ..., units: ..., source: ...}
+    Input YAML shape (list, config/reinsurance.yaml):
+        - name:                      {value: ..., units: ..., source: ...}
+          attachment:                {value: ..., units: ..., source: ...}
+          occ_limit:                 {value: ..., units: ..., source: ...}
+          n_reinstatements:          {value: ..., units: ..., source: ...}
+          reinstatement_premium_pct: {value: ..., units: ..., source: ...}
 
     Output:
-        [{"name": "Layer 1", "attachment": 60000000, "limit": 40000000}, ...]
+        [{"name": "Layer 1", "attachment": 60000000, "occ_limit": 40000000,
+          "n_reinstatements": 1, "reinstatement_premium_pct": 1.0}, ...]
     """
     result = []
     for i, layer in enumerate(lst):
@@ -318,3 +328,16 @@ def load_model_cfg():
 def load_calibration_cfg():
     """Load and validate config/calibration.yaml.  Returns _NS."""
     return _load(os.path.join(_CFG_DIR, "calibration.yaml"))
+
+
+def load_reinsurance_cfg():
+    """
+    Load and validate config/reinsurance.yaml.  Returns _NS.
+
+    Attributes
+    ----------
+    loading_factor  float   illustrative flat technical loading
+    layers          list    [{name, attachment, occ_limit, n_reinstatements,
+                              reinstatement_premium_pct}, ...]
+    """
+    return _load(os.path.join(_CFG_DIR, "reinsurance.yaml"))

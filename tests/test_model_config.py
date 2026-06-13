@@ -100,7 +100,7 @@ class TestPhysicsOverrides:
         tree = load_model_cfg()
         assert tree.simulation.seed == 42
         assert tree.hazard.efold_km == 120
-        assert len(tree.reinsurance.layers) == 3
+        assert len(tree.summary.return_periods) == 8  # reinsurance migrated to config/reinsurance.yaml
 
     def test_all_five_overrides_work(self, monkeypatch):
         """All five CATMODEL_* vars can be set simultaneously to alternate values."""

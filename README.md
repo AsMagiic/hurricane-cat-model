@@ -357,15 +357,17 @@ Same identity holds for net. This is enforced by `tests/test_outputs.py::TestElt
 
 Gust factor 1.3 (open terrain, Exposure C); damage forced to zero below a 65 mph gust threshold.
 
-**Reinsurance** — per-occurrence XoL tower
+**Reinsurance** — per-occurrence XoL tower with finite reinstatements (`config/reinsurance.yaml`)
 
-| Layer | Structure | Covers per-event loss |
-|---|---|---|
-| Layer 1 | 40M xs 60M | 60M - 100M |
-| Layer 2 | 50M xs 100M | 100M - 150M |
-| Layer 3 | 50M xs 150M | 150M - 200M |
+| Layer | Structure | Covers per-event loss | n reinstatements | Annual agg limit |
+|---|---|---|---:|---:|
+| Layer 1 | 40M xs 60M | 60M - 100M | 1 | 80M |
+| Layer 2 | 50M xs 100M | 100M - 150M | 1 | 100M |
+| Layer 3 | 50M xs 150M | 150M - 200M | 1 | 200M |
 
-60M retention, 140M total capacity, 200M exhaustion.
+60M retention, 140M total capacity, 200M exhaustion. Annual aggregate limit = `occ_limit × (1 + n_reinstatements)` per layer. Within a year, events are processed in EventId order; once a layer's annual aggregate is exhausted, subsequent events receive no recovery from that layer. **The reinstatement premium is pro-rata to amount:** `reinst_prem = base_premium × (reinstated_amount / occ_limit) × 100%`. Base premium = E[annual capped recovery] × (1 + 15% loading) — **TECHNICAL** (flat EL loading; real market RoL embeds capital cost).
+
+**Finite vs unlimited delta (seed=42, 100k years, n=1):** All AEP/OEP return-period quantiles are bit-identical between finite and unlimited — the per-year exhaustion rate for Layer 1 is 0.05% (51/100k years), too rare to move any annual quantile at the modelled return periods. At n=1 reinstatements, the programme's aggregate design provides materially more capacity than a single-event portfolio requires in any given year.
 
 <details>
 <summary>v1 reference: Lognormal severity parameterization</summary>
@@ -386,7 +388,7 @@ The `-sigma^2/2` correction offsets the upward pull of the tail so the arithmeti
 
 The headline table above is the model's output. Three things the numbers tell:
 
-**The value of reinsurance.** The gap between the gross and net curves is what the XoL programme buys. On a per-occurrence basis it removes 53.2M from the 1-in-100 single-event loss (113.2M -> 60.0M) and 86.9M from the 1-in-250 (146.9M -> 60.0M). The expected annual recovery — the technical floor of the programme's premium — is about USD 1.44M/year, concentrated in Layer 1 (which triggers in ~3.8% of years) and tapering to Layer 3 (~0.4% of years).
+**The value of reinsurance.** The gap between the gross and net curves is what the XoL programme buys. On a per-occurrence basis it removes 53.2M from the 1-in-100 single-event loss (113.2M -> 60.0M) and 86.9M from the 1-in-250 (146.9M -> 60.0M). The expected annual recovery — the technical floor of the programme's premium — is about USD 1.44M/year, concentrated in Layer 1 (which triggers in ~3.8% of years) and tapering to Layer 3 (~0.4% of years). Layer 1 reinstatement exhaustion occurs in only 0.05% of simulated years (51/100k): at n=1 reinstatement, finite and unlimited programme costs are effectively equivalent for this portfolio — a quantified finding.
 
 **Vulnerability drives loss concentration.** Average Annual Loss by construction departs sharply from the share of value: Manufactured homes hold 8.7% of TIV but contribute **34.0%** of AAL (3.9x), while Reinforced Concrete holds 15.2% of TIV and just 2.8% of loss (0.2x). This is the construction-differentiated vulnerability working as intended.
 
@@ -480,7 +482,7 @@ Stated plainly so results are read in context. The v2→v3 work resolved several
   calibrated to HURDAT2).
 - **Single peril.** Wind only; no storm surge, inland flood, or demand surge.
 - **Track-frozen storm parameters.** Rmax, B, and Δp are held at their landfall values along a straight-line track; Coriolis latitude is fixed at landfall; inland decay continues even where a long track exits the peninsula over water.
-- **Reinsurance structure.** No reinstatements, no co-participation, no quota share — the net loss is flat at the retention by design.
+- **Reinsurance structure.** One reinstatement per layer (finite reinstatements modelled, Step 4.4); no co-participation, no quota share; pro-rata-temporis premium is v4.
 
 Each is a natural extension rather than a flaw.
 
@@ -495,7 +497,7 @@ Each is a natural extension rather than a flaw.
 - Generalized Pareto (peaks-over-threshold) tail modelling.
 - **Secondary uncertainty calibration** — calibrate CV as an MDR-dependent function and ρ (common-shock spatial correlation) from per-event loss data; the common-shock Gaussian-copula mechanism is built (Step 3.1) but ships with uncalibrated placeholder parameters pending v4 loss data.
 - Multi-peril (storm surge, inland flood, demand surge).
-- Reinstatements and quota-share in the reinsurance structure.
+- Pro-rata-temporis reinstatement premiums and quota-share in the reinsurance structure (pro-rata-to-amount premium is modelled; time-based weighting is v4).
 - Reproduction in the open-source [Oasis LMF](https://oasislmf.org) framework.
 
 ---
