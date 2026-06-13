@@ -520,3 +520,11 @@ scenario:
     value: 1.0
     units: "hours"
     source: "Linear interpolation step for HURDAT2 track densification. Hourly spacing is standard for wind-field integration over a moving storm. See model/scenario.py."
+  grid_step_deg:
+    value: 0.05
+    units: "degrees"
+    source: "Regular grid step for footprint validation (~5.5 km at 25°N; ~3 nm). Balances spatial resolution vs compute time. See validation/footprint_metrics.py."
+  grid_pad_deg:
+    value: 2.0
+    units: "degrees"
+    source: "Grid padding beyond track bbox in degrees. Ensures the 34-kt ring (outermost threshold) is fully captured even when it extends beyond the observed track points. See validation/footprint_metrics.py."

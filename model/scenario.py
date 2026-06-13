@@ -367,6 +367,43 @@ def _build_storm_params(landfall_fix, prev_fix) -> StormParams:
 
 
 # ---------------------------------------------------------------------------
+# prepare_storm — public composition helper (Step 3)
+# ---------------------------------------------------------------------------
+
+def prepare_storm(name: str, year: int, hurdat2_path=None):
+    """
+    Load and parametrise a named historical storm from HURDAT2.
+    Zero RNG draws. Two calls with identical inputs are bit-identical.
+
+    This function encapsulates steps 1-6 of run_scenario and is the entry
+    point for validation/footprint_metrics.py, which needs the track and
+    storm_params without running the portfolio loss computation.
+
+    Parameters
+    ----------
+    name         : str      -- storm name, case-insensitive (e.g. 'ANDREW')
+    year         : int      -- calendar year (e.g. 1992)
+    hurdat2_path : str|None -- HURDAT2 file path; None → configured default
+
+    Returns
+    -------
+    track        : (N, 4) float64 ndarray
+                   columns [lat °N, lon °W, vmax_step mph, cum_dist km]
+    storm_params : StormParams -- rmax (km), heading_deg, vt_kmh, b, dp_mb, lat (°N)
+    landfall_fix : pd.Series  -- HURDAT2 best-track row for the FL landfall fix;
+                                 storm_id and datetime fields used by
+                                 validation/footprint_metrics.py::read_hurdat2_radii
+    """
+    storm_df     = load_storm(name, year, hurdat2_path)
+    landfall_fix = _pick_landfall(storm_df, _fl_bbox)
+    prev         = _prev_fix(storm_df, landfall_fix)
+    interp_df    = _interpolate_track(storm_df)
+    track        = _build_track_array(interp_df)
+    storm_params = _build_storm_params(landfall_fix, prev)
+    return track, storm_params, landfall_fix
+
+
+# ---------------------------------------------------------------------------
 # run_scenario — Commit B
 # ---------------------------------------------------------------------------
 
@@ -382,17 +419,12 @@ def run_scenario(
 
     Pipeline
     --------
-    1.  load_storm           → storm_df (HURDAT2 fixes)
-    2.  _pick_landfall       → landfall_fix (max-vmax FL 'L' fix)
-    3.  _prev_fix            → prev_fix (for heading / vt)
-    4.  _interpolate_track   → interp_df (~hourly dense track)
-    5.  _build_track_array   → track  shape (N, 4)
-    6.  _build_storm_params  → StormParams (V&W mean, no RNG)
-    7.  load_oed_exposure    → exp_df (from loc_path / acc_path)
-    8.  build_event_kernel   → vuln_kernel (ndarray constructions)
-    9.  wind_at_locations    → footprint  shape (n_loc,)  [mph, 1-min sustained]
-    10. compute_event_loss   → ground_up, gross, dr  each shape (n_loc,)  [USD, USD, fraction]
-    11. _write_outputs       → results/scenarios/{NAME}_{YEAR}_*.csv
+    1-6. prepare_storm       → track (N,4), StormParams, landfall_fix
+    7.   load_oed_exposure   → exp_df (from loc_path / acc_path)
+    8.   build_event_kernel  → vuln_kernel (ndarray constructions)
+    9.   wind_at_locations   → footprint  shape (n_loc,)  [mph, 1-min sustained]
+    10.  compute_event_loss  → ground_up, gross, dr  each shape (n_loc,)  [USD, USD, fraction]
+    11.  _write_outputs      → results/scenarios/{NAME}_{YEAR}_*.csv
 
     Parameters
     ----------
@@ -415,13 +447,8 @@ def run_scenario(
     compute_event_loss, not in the footprint) — apples-to-apples with NHC for
     Step 3 footprint validation.
     """
-    # Track and storm parameters (HURDAT2-sourced, deterministic)
-    storm_df     = load_storm(name, year, hurdat2_path)
-    landfall_fix = _pick_landfall(storm_df, _fl_bbox)
-    prev         = _prev_fix(storm_df, landfall_fix)
-    interp_df    = _interpolate_track(storm_df)
-    track        = _build_track_array(interp_df)
-    storm_params = _build_storm_params(landfall_fix, prev)
+    # Steps 1-6: track and storm parameters (HURDAT2-sourced, deterministic)
+    track, storm_params, landfall_fix = prepare_storm(name, year, hurdat2_path)
 
     # Exposure (load from paths, NOT from loss.py module globals)
     exp_df = load_oed_exposure(
