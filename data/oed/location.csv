@@ -1,4 +1,4 @@
-PortNumber,AccNumber,LocNumber,CountryCode,LocPerilsCovered,LocCurrency,AreaCode,AreaName,GeogScheme1,GeogName1,Latitude,Longitude,BuildingTIV,ConstructionCode,OccupancyCode,LocDed1Building,DedCode1Building,DedType1Building,LocLimit1Building,LimitType1Building,OrgConstructionScheme,OrgConstructionCode,OrgOccupancyScheme,OrgOccupancyCode
+PortNumber,AccNumber,LocNumber,CountryCode,LocPerilsCovered,LocCurrency,AreaCode,AreaName,GeogScheme1,GeogName1,Latitude,Longitude,BuildingTIV,ConstructionCode,OccupancyCode,LocDed1Building,LocDedCode1Building,LocDedType1Building,LocLimit1Building,LocLimitType1Building,OrgConstructionScheme,OrgConstructionCode,OrgOccupancyScheme,OrgOccupancyCode
 1,A0001,LOC00001,US,WTC,USD,FL,Florida,CNTY,Hillsborough,27.8758,-82.3089,197488,5050,1055,19749,0,0,197488,0,MODEL,Wood Frame,MODEL,Condo
 1,A0001,LOC00002,US,WTC,USD,FL,Florida,CNTY,Palm Beach,26.7424,-80.243,1890148,5100,1051,94507,0,0,1890148,0,MODEL,Masonry,MODEL,Single Family
 1,A0001,LOC00003,US,WTC,USD,FL,Florida,CNTY,Collier,26.1035,-81.5203,339041,5050,1051,16952,0,0,339041,0,MODEL,Wood Frame,MODEL,Single Family

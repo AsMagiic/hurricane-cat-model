@@ -4,7 +4,7 @@ Loss integration engine for the Florida hurricane cat model (Step 4).
 Wires together:
   hazard.py        -> stochastic moving-track wind fields (sustained mph)
   vulnerability.py -> HAZUS-anchored damage ratio curves (3-s gust)
-  data/exposure.csv -> TIV, deductible, policy limit per location
+  model.exposure_io -> TIV, deductible, policy limit per location (OED v4 adapter)
 
 Three-level loss hierarchy applied per location, per event (in this order):
   gust      = sustained_wind * GUST_FACTOR          (Exposure C, open coastal)

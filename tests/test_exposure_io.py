@@ -167,14 +167,25 @@ class TestOedValidity:
         actual = set(loc["OccupancyCode"].unique())
         assert actual.issubset(valid), f"Unexpected OccupancyCode values: {actual - valid}"
 
-    # ---- financial type codes -----------------------------------------------
+    # ---- financial columns: exact spec names present, unprefixed variants absent ----
+    def test_financial_spec_columns_present(self, loc):
+        for col in ("LocDedCode1Building", "LocDedType1Building",
+                    "LocDed1Building", "LocLimitType1Building", "LocLimit1Building"):
+            assert col in loc.columns, f"Required OED financial column missing: {col}"
+
+    def test_unprefixed_financial_columns_absent(self, loc):
+        for col in ("DedCode1Building", "DedType1Building", "LimitType1Building"):
+            assert col not in loc.columns, (
+                f"Non-spec column {col!r} present — use Loc-prefixed name"
+            )
+
     def test_ded_type_is_amount(self, loc):
-        assert (loc["DedType1Building"] == 0).all(), \
-            "DedType1Building must be 0 (Amount) for bit-identity"
+        assert (loc["LocDedType1Building"] == 0).all(), \
+            "LocDedType1Building must be 0 (Amount) for bit-identity"
 
     def test_limit_type_is_amount(self, loc):
-        assert (loc["LimitType1Building"] == 0).all(), \
-            "LimitType1Building must be 0 (Amount)"
+        assert (loc["LocLimitType1Building"] == 0).all(), \
+            "LocLimitType1Building must be 0 (Amount)"
 
     # ---- peril code ---------------------------------------------------------
     def test_loc_peril_wtc(self, loc):

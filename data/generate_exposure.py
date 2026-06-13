@@ -130,10 +130,10 @@ loc_df = pd.DataFrame({
     "ConstructionCode":      [CONST_TO_OED[c] for c in construction],
     "OccupancyCode":         [OCC_TO_OED[o] for o in occupancy],
     "LocDed1Building":       deductible,
-    "DedCode1Building":      [DED_CODE]   * N_LOCATIONS,
-    "DedType1Building":      [DED_TYPE]   * N_LOCATIONS,
+    "LocDedCode1Building":   [DED_CODE]   * N_LOCATIONS,
+    "LocDedType1Building":   [DED_TYPE]   * N_LOCATIONS,
     "LocLimit1Building":     limit,
-    "LimitType1Building":    [LIMIT_TYPE] * N_LOCATIONS,
+    "LocLimitType1Building": [LIMIT_TYPE] * N_LOCATIONS,
     "OrgConstructionScheme": [ORG_CONST_SCH] * N_LOCATIONS,
     "OrgConstructionCode":   construction,
     "OrgOccupancyScheme":    [ORG_OCC_SCH]   * N_LOCATIONS,
@@ -198,9 +198,9 @@ print("[OK] All deductibles non-negative")
 assert set(loc_df["LocPerilsCovered"].unique()) == {PERIL}, "Unexpected peril codes"
 print(f"[OK] LocPerilsCovered == '{PERIL}' for all rows")
 
-assert (loc_df["DedType1Building"] == DED_TYPE).all(), "DedType mismatch"
-assert (loc_df["LimitType1Building"] == LIMIT_TYPE).all(), "LimitType mismatch"
-print("[OK] DedType1Building == 0 (Amount); LimitType1Building == 0 (Amount)")
+assert (loc_df["LocDedType1Building"] == DED_TYPE).all(), "DedType mismatch"
+assert (loc_df["LocLimitType1Building"] == LIMIT_TYPE).all(), "LimitType mismatch"
+print("[OK] LocDedType1Building == 0 (Amount); LocLimitType1Building == 0 (Amount)")
 
 valid_const_codes = set(CONST_TO_OED.values())
 assert set(loc_df["ConstructionCode"].unique()).issubset(valid_const_codes), \
