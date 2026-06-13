@@ -236,7 +236,7 @@ An insurer can comfortably pay for the *average* year; it is bankrupted by the *
 
 The model executes a six-step pipeline (orchestrated by `run_all.py`), each step an independent, validated module:
 
-**1 - Exposure** — `data/generate_exposure.py` builds 1,000 synthetic coastal homeowner locations across eight hurricane-exposed Florida counties, weighted toward the South-East metro where real exposure concentrates. Each location carries coordinates, TIV, construction class, occupancy, and a Florida-style hurricane deductible tier.
+**1 - Exposure** — `data/generate_exposure.py` builds 1,000 synthetic coastal homeowner locations across eight hurricane-exposed Florida counties, weighted toward the South-East metro where real exposure concentrates. Each location carries coordinates, TIV, construction class, occupancy, and a Florida-style hurricane deductible tier. The portfolio is serialised in **OED v4 format** (`data/oed/location.csv` + `data/oed/account.csv`) and consumed by the model via `model/exposure_io.py`. OED carries exposure only — terrain roughness is a model assumption (Exposure C, gust factor 1.3), not an OED field; per-site terrain is v4 scope.
 
 **2 - Hazard** — `model/hazard.py` generates a stochastic catalogue of **moving-track** storms. Frequency is Poisson (λ calibrated via an AMO-conditioned GLM); intensity follows a truncated-lognormal fitted to HURDAT2 landfall Vmax; landfall geography is a KDE over the calibrated coastline. Each storm's wind field is **physical**: a central-pressure deficit drives Vickery-Wadhera storm sizing (Rmax) and profile peakedness (B), feeding a Holland (1980) gradient-balance profile, with forward-motion asymmetry and Kaplan-DeMaria inland decay. Every location receives the maximum sustained wind it experienced during the storm's passage.
 
@@ -267,6 +267,23 @@ The **hazard** parameters below are calibrated to HURDAT2 (v3, Phases 1–2). Th
 | Counties | 8 FL coastal, weighted to the South-East (Miami-Dade, Broward, Palm Beach heaviest) |
 | Construction mix | Masonry 509 - Wood Frame 240 - Reinforced Concrete 172 - Manufactured 79 |
 | Hurricane deductibles | 2% / 5% / 10% of TIV (per occurrence) |
+| Format | OED v4 (Location + Account) |
+
+**OED v4 code mapping**
+
+| Model taxonomy | OED ConstructionCode | OED OccupancyCode |
+|---|---:|---:|
+| Wood Frame | 5050 | — |
+| Masonry | 5100 | — |
+| Reinforced Concrete | 5150 | — |
+| Manufactured | 5350 | — |
+| Single Family | — | 1051 |
+| Condo | — | 1055 |
+| Mobile Home | — | 1051 |
+
+Peril: `WTC` (Strong wind from Tropical Cyclone). Currency: `USD`. Deductible type: Amount (pre-rounded integer; percent-of-TIV is not stored in OED to preserve bit-identity on load). The original taxonomy strings are preserved losslessly in `OrgConstructionCode` / `OrgOccupancyCode` (scheme = `MODEL`) — the provenance fields used by the read adapter for lossless round-trips. Note: `OccupancyCode=1051` is shared by Single Family and Mobile Home; the provenance fields are required for an invertible occupancy round-trip.
+
+> **OED carries exposure only.** Terrain roughness (Exposure C, gust factor 1.3) is a model assumption configured in `config/model_v3.yaml`; it is **not** wired from any OED field. Per-site terrain modelling is v4 scope.
 
 **Hazard** (v3 — calibrated to HURDAT2; see [Calibration](#calibration-v2--v3))
 
@@ -460,9 +477,12 @@ Dependency order is `loss.py` -> `reinsurance.py` -> `summary.py` (the orchestra
 hurricane-cat-model/
 |-- run_all.py                   # orchestrates the full pipeline
 |-- data/
-|   |-- generate_exposure.py     # step 1 - synthetic FL exposure
-|   `-- exposure.csv
+|   |-- generate_exposure.py     # step 1 - synthetic FL exposure -> OED files
+|   `-- oed/
+|       |-- location.csv         # OED v4 Location file (1,000 risk locations)
+|       `-- account.csv          # OED v4 Account file (single account/policy)
 |-- model/
+|   |-- exposure_io.py           # OED read adapter -> legacy compatibility view
 |   |-- hazard.py                # step 2 - stochastic moving-track storms
 |   |-- hazard_diagnostics.py    #          spatial validation
 |   |-- vulnerability.py         # step 3 - HAZUS-anchored damage curves
@@ -473,6 +493,9 @@ hurricane-cat-model/
 |   |-- aggregate_loss.py        # v1 reference - compound-Poisson aggregate
 |   |-- ep_curve.py              # v1 reference - AEP/OEP curves
 |   `-- sanity_check.py          # v1 reference - Poisson validation
+|-- tests/
+|   `-- fixtures/
+|       `-- exposure_reference.csv  # frozen legacy exposure (bit-identity reference)
 |-- outputs/                     # generated plots (pipeline + calibration figures)
 `-- results/                     # generated CSVs (gitignored, reproducible)
     `-- summary_metrics.csv      # headline metrics table (regenerated each run)

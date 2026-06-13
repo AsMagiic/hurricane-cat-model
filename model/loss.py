@@ -34,6 +34,7 @@ from model.hazard        import simulate_year, LAMBDA
 from model.wind_field    import wind_at_locations, StormParams
 from model.vulnerability import GUST_FACTOR, GUST_THRESHOLD, CONSTRUCTION_PARAMS, build_event_kernel
 from model.ep_utils      import oep_pml, ep_curve, pml_rank_diagnostic
+from model.exposure_io   import load_portfolio
 
 # ---------------------------------------------------------------------------
 # Configuration -- loaded from config/model_v3.yaml
@@ -50,9 +51,9 @@ RESULTS_DIR = os.path.join(_ROOT, "results")
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
 # ---------------------------------------------------------------------------
-# Load exposure
+# Load exposure (OED Location + Account via compatibility adapter)
 # ---------------------------------------------------------------------------
-_exp = pd.read_csv(os.path.join(_ROOT, "data", "exposure.csv"))
+_exp = load_portfolio()
 
 lats          = _exp["lat"].to_numpy(dtype=float)
 lons          = _exp["lon"].to_numpy(dtype=float)

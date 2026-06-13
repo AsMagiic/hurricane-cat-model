@@ -84,3 +84,96 @@ deductibles:
     value: [0.30, 0.50, 0.20]
     units: "probability"
     source: "illustrative (v2)"
+
+# ---------------------------------------------------------------------------
+# OED (Open Exposure Data v4) mapping tables
+# Source: OasisLMF/ODS_OpenExposureData, OED v4 specification
+# ---------------------------------------------------------------------------
+oed_mapping:
+  # ConstructionCode: integer codes for OED ConstructionCode field
+  # Source: OED v4 Table ConstructionCode
+  construction_to_oed:
+    value:
+      Wood Frame: 5050
+      Masonry: 5100
+      Reinforced Concrete: 5150
+      Manufactured: 5350
+    units: "OED ConstructionCode (int)"
+    source: "OED v4, OasisLMF/ODS_OpenExposureData"
+
+  # OccupancyCode: integer codes for OED OccupancyCode field
+  # Note: Single Family and Mobile Home both map to 1051 — NOT invertible from
+  # OccupancyCode alone; lossless round-trip requires OrgOccupancyCode provenance.
+  # Source: OED v4 Table OccupancyCode
+  occupancy_to_oed:
+    value:
+      Single Family: 1051
+      Condo: 1055
+      Mobile Home: 1051
+    units: "OED OccupancyCode (int)"
+    source: "OED v4, OasisLMF/ODS_OpenExposureData"
+
+  # Peril: LocPerilsCovered / PolPerilsCovered
+  # WTC = Strong wind from Tropical Cyclone
+  # Source: OED v4 PerilCode table
+  peril:
+    value: "WTC"
+    units: "OED PerilCode"
+    source: "OED v4, OasisLMF/ODS_OpenExposureData"
+
+  # Financial codes (DedCode=0 Regular; DedType=0 Amount; LimitType=0 Amount)
+  # Amount type required for bit-identity: deductible is pre-rounded to integer
+  # dollars in generate_exposure.py; storing as Amount avoids float reconstruction.
+  # Source: OED v4 DedCode/DedType/LimitType tables
+  ded_code:
+    value: 0
+    units: "OED DedCode (0=Regular)"
+    source: "OED v4"
+  ded_type:
+    value: 0
+    units: "OED DedType (0=Amount)"
+    source: "OED v4"
+  limit_type:
+    value: 0
+    units: "OED LimitType (0=Amount)"
+    source: "OED v4"
+
+  # Currency
+  # Source: OED v4 currency fields
+  currency:
+    value: "USD"
+    units: "ISO 4217"
+    source: "OED v4"
+
+  # Geography
+  # Source: OED v4 CountryCode / AreaCode fields
+  country_code:
+    value: "US"
+    units: "ISO 3166-1 alpha-2"
+    source: "OED v4"
+  area_code:
+    value: "FL"
+    units: "OED AreaCode (US state abbreviation)"
+    source: "OED v4"
+  area_name:
+    value: "Florida"
+    units: "OED AreaName"
+    source: "OED v4"
+
+  # County geography scheme
+  # Source: OED v4 GeogScheme1 / GeogName1 fields
+  county_geog_scheme:
+    value: "CNTY"
+    units: "OED GeogScheme1 (county identifier)"
+    source: "OED v4"
+
+  # Provenance scheme codes for lossless org taxonomy round-trip
+  # OrgConstructionScheme / OrgOccupancyScheme carry the model's internal labels
+  org_construction_scheme:
+    value: "MODEL"
+    units: "provenance label"
+    source: "design choice (v3)"
+  org_occupancy_scheme:
+    value: "MODEL"
+    units: "provenance label"
+    source: "design choice (v3)"

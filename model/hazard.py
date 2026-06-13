@@ -476,14 +476,14 @@ def simulate_year(rng):
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
 
-    EXP_PATH = os.path.join(_ROOT_DIR, "data", "exposure.csv")
-    OUT_DIR  = os.path.join(_ROOT_DIR, "outputs")
+    from model.exposure_io import load_portfolio as _load_portfolio, OED_LOC_PATH
+    OUT_DIR = os.path.join(_ROOT_DIR, "outputs")
 
-    # Load portfolio locations
-    exp  = pd.read_csv(EXP_PATH, usecols=["location_id", "lat", "lon"])
+    # Load portfolio locations via OED adapter
+    exp  = _load_portfolio()
     lats = exp["lat"].to_numpy()
     lons = exp["lon"].to_numpy()
-    print(f"Loaded {len(exp)} portfolio locations from {EXP_PATH}")
+    print(f"Loaded {len(exp)} portfolio locations from {OED_LOC_PATH}")
 
     # -----------------------------------------------------------------------
     # 1. Single demo storm — footprint plot

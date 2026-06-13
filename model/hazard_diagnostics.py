@@ -15,22 +15,22 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 
-from model.hazard     import (sample_storm, COAST_POINTS,
-                              _S_SAMPLES_KM, _COAST_LINE_3086, _FROM_3086)
-from model.wind_field import wind_at_locations, StormParams
+from model.hazard       import (sample_storm, COAST_POINTS,
+                               _S_SAMPLES_KM, _COAST_LINE_3086, _FROM_3086)
+from model.wind_field  import wind_at_locations, StormParams
+from model.exposure_io import load_portfolio
 
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-ROOT     = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-EXP_PATH = os.path.join(ROOT, "data",    "exposure.csv")
-OUT_DIR  = os.path.join(ROOT, "outputs")
+ROOT    = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUT_DIR = os.path.join(ROOT, "outputs")
 os.makedirs(OUT_DIR, exist_ok=True)
 
 # ---------------------------------------------------------------------------
-# Load exposure portfolio
+# Load exposure portfolio via OED adapter
 # ---------------------------------------------------------------------------
-exp      = pd.read_csv(EXP_PATH)
+exp      = load_portfolio()
 lats     = exp["lat"].to_numpy()
 lons     = exp["lon"].to_numpy()
 tivs     = exp["tiv"].to_numpy(dtype=float)
