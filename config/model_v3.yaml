@@ -465,6 +465,19 @@ vulnerability:
     value: "on"
     units: "label"
     source: "Task 2b. Sub-switch (damage_state_mean mode only). 'on': apply 65-mph hard cutoff (preserves v2 onset behaviour for DS mode); 'off': let lognormal fragility tails handle onset (quantifies Manufactured AAL delta, Task 2b open decision). Env-var override: CATMODEL_DS_GUST_THRESHOLD. See model/vulnerability.py."
+  # ---- Damage uncertainty (Step 3.1) ----
+  damage_uncertainty:
+    value: "off"
+    units: "label"
+    source: "Step 3.1. Secondary uncertainty switch: 'off' (default, bit-identical to deterministic baseline) | 'on' (Gaussian copula common-shock Beta damage draws around the mean curve). Env-var: CATMODEL_DAMAGE_UNCERTAINTY."
+  damage_cv:
+    value: 0.40
+    units: "dimensionless"
+    source: "Placeholder, order-of-magnitude. CAS reports ~0.30 aggregate severity CV; pointwise damage-ratio CV is larger due to portfolio diversification. NOT calibrated; to be replaced — potentially with an MDR-dependent CV — in v4 when per-event damage data exists. Env-var: CATMODEL_DAMAGE_CV."
+  damage_rho:
+    value: 0.5
+    units: "dimensionless"
+    source: "Sensitivity parameter, not calibrated. Common-shock spatial correlation in [0,1]; swept in analysis/sensitivity_secondary.py. Env-var: CATMODEL_DAMAGE_RHO."
   # 5-state damage-state fragility parameters (DS0-DS4).
   # E[DR|g] = sum_{k=1}^{4} delta_lr_k * Phi(ln(g/theta_k)/beta)
   # delta_lr = diff(consequence_loss_ratios[1:]) = [0.02, 0.08, 0.40, 0.50]

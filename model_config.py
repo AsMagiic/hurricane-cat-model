@@ -237,14 +237,23 @@ def _apply_physics_overrides(tree):
 # ---------------------------------------------------------------------------
 
 _VULN_OVERRIDES = {
-    "CATMODEL_VULN_METHOD":       ("method",            frozenset({"logistic_deterministic", "damage_state_mean"})),
-    "CATMODEL_DS_GUST_THRESHOLD": ("ds_gust_threshold", frozenset({"on", "off"})),
+    "CATMODEL_VULN_METHOD":           ("method",             frozenset({"logistic_deterministic", "damage_state_mean"})),
+    "CATMODEL_DS_GUST_THRESHOLD":     ("ds_gust_threshold",  frozenset({"on", "off"})),
+    "CATMODEL_DAMAGE_UNCERTAINTY":    ("damage_uncertainty",  frozenset({"on", "off"})),
+}
+
+# Float-valued vulnerability overrides (validated by range, not frozenset).
+_VULN_FLOAT_OVERRIDES = {
+    "CATMODEL_DAMAGE_CV":  "damage_cv",   # must be > 0
+    "CATMODEL_DAMAGE_RHO": "damage_rho",  # must be in [0, 1]
 }
 
 
 def _apply_vulnerability_overrides(tree):
     """Override vulnerability switches from CATMODEL_* env vars. No-op if none are set."""
     vuln = tree.vulnerability
+
+    # Categorical overrides (validated against frozenset of allowed strings)
     for env_key, (attr, allowed) in _VULN_OVERRIDES.items():
         val = os.environ.get(env_key)
         if val is None:
@@ -261,6 +270,32 @@ def _apply_vulnerability_overrides(tree):
                 f"Check that config/model_v3.yaml contains vulnerability.{attr}."
             )
         setattr(vuln, attr, val)
+
+    # Float overrides (validated by range)
+    for env_key, attr in _VULN_FLOAT_OVERRIDES.items():
+        val = os.environ.get(env_key)
+        if val is None:
+            continue
+        try:
+            fval = float(val)
+        except ValueError:
+            raise ValueError(
+                f"Environment variable {env_key}={val!r} cannot be parsed as float."
+            )
+        if attr == "damage_cv" and fval <= 0.0:
+            raise ValueError(
+                f"Environment variable {env_key}={val!r}: damage_cv must be > 0."
+            )
+        if attr == "damage_rho" and not (0.0 <= fval <= 1.0):
+            raise ValueError(
+                f"Environment variable {env_key}={val!r}: damage_rho must be in [0, 1]."
+            )
+        if not hasattr(vuln, attr):
+            raise ValueError(
+                f"Environment variable {env_key} targets vulnerability.{attr}, "
+                f"but that leaf does not exist in the materialized config tree."
+            )
+        setattr(vuln, attr, fval)
 
 
 # ---------------------------------------------------------------------------
