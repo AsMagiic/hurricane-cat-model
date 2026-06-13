@@ -11,7 +11,7 @@ Steps
   3  model/vulnerability.py       HAZUS-anchored damage curves (demo + asserts)
   4  model/loss.py                100k-year loss catalog (ground-up + gross + EventId)
   5  model/reinsurance.py         per-occurrence XoL programme + gross vs net OEP
-  5.5 model/outputs.py            standard YLT (sim -> ylt.csv, single source for EP)
+  5.5 model/outputs.py            standard YLT + SELT (sim -> ylt.csv + elt.csv)
   6  model/summary.py             metrics table (reads ylt.csv) + outputs/ep_master.png
 
 Usage
@@ -94,7 +94,7 @@ def main():
         ("Step 5 | Reinsurance            (model/reinsurance.py)",
          [py, "-m", "model.reinsurance"]),
 
-        ("Step 5.5 | YLT build           (model/outputs.py)",
+        ("Step 5.5 | YLT + SELT build     (model/outputs.py)",
          [py, "-m", "model.outputs"]),
 
         ("Step 6 | Summary + master plot  (model/summary.py)",
@@ -127,6 +127,7 @@ def main():
     print("  results/annual_losses.csv")
     print("  results/events_net.csv      (EventId carried through from events.csv)")
     print("  results/ylt.csv             (Year Loss Table — single source for EP metrics)")
+    print("  results/elt.csv             (Sampled Event Loss Table — one row per event)")
     print("  results/summary_metrics.csv")
     print()
 

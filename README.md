@@ -16,7 +16,7 @@ The model builds a book of 1,000 insured locations, simulates 100,000 years of s
 3. Vulnerability   vulnerability.py       HAZUS-anchored damage curves by construction
 4. Financial       loss.py                ground-up -> gross (per-occurrence deductibles); assigns EventId
 5. Reinsurance     reinsurance.py         per-occurrence XoL tower -> net; carries EventId
-5.5. YLT build    outputs.py             sim -> results/ylt.csv (single source for all EP metrics)
+5.5. YLT+SELT     outputs.py             sim -> results/ylt.csv (EP source) + results/elt.csv
 6. EP metrics      summary.py             reads ylt.csv -> AEP & OEP, gross & net, PMLs
                    run_all.py             runs the whole chain end-to-end
 ```
@@ -306,7 +306,31 @@ The simulation → EP metric flow is: `run_all.py` → loss simulation → reins
 | `MaxOccGross` | float | Largest per-occurrence gross loss in the year (0 for no-storm years) |
 | `MaxOccNet` | float | Largest per-occurrence net loss in the year (0 for no-storm years) |
 
-`events.csv` carries a stable `EventId` (global monotonic 1-based integer, first column) which is the data-model primary key for future ELT work. `events_net.csv` carries the same `EventId`.
+`events.csv` carries a stable `EventId` (global monotonic 1-based integer, first column) which is the data-model primary key for ELT work. `events_net.csv` carries the same `EventId`.
+
+**Sampled Event Loss Table (SELT)** — `results/elt.csv`
+
+One row per simulated event. This is a **sampled ELT** (not a rated catalog): because every event in the catalog is sampled once from a 100,000-year simulation, its `AnnualRate = 1/N_years = 1/100,000`. EP metrics continue to flow from the YLT — the SELT is a parallel standard representation for event-level work and (v4) integration with OED platforms.
+
+| Column | Type | Description |
+|---|---|---|
+| `EventId` | int | Stable monotonic 1-based PK (matches `events.csv` / `events_net.csv`) |
+| `AnnualRate` | float | `1 / N_years = 0.00001` for every event (uniform; sampled-event-set convention) |
+| `MeanLossGross` | float | `portfolio_gross` — gross loss for this event (USD) |
+| `MeanLossNet` | float | `portfolio_net` — net loss after XoL recoveries (USD) |
+| `StdDevIndependent` | float | **NaN** — deferred to v4 (requires calibrated CV and moment treatment of deductible/limit nonlinearity) |
+| `StdDevCorrelated` | float | **NaN** — deferred to v4 (requires calibrated spatial ρ) |
+| `ExposureValue` | float | Reference portfolio TIV (USD 500,000,000; constant — per-event affected TIV is v4) |
+
+**AAL reconciliation identity.** Because events partition years (each event belongs to exactly one simulated year):
+
+```
+sum(AnnualRate × MeanLossGross) = (1/N) × Σ_e portfolio_gross_e
+                                = (1/N) × Σ_y AggGross_y
+                                = mean(AggGross_y)   ← YLT AEP-gross AAL
+```
+
+Same identity holds for net. This is enforced by `tests/test_outputs.py::TestEltReconciliation` (relative error < 1e-6).
 
 **Hazard** (v3 — calibrated to HURDAT2; see [Calibration](#calibration-v2--v3))
 

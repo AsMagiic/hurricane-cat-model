@@ -32,7 +32,7 @@ import sys
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _ROOT)
 
-from model.outputs import build_ylt
+from model.outputs import build_ylt, build_elt
 from model.ep_utils import oep_pml
 
 _RES = os.path.join(_ROOT, "results")
@@ -342,4 +342,170 @@ class TestEventId:
             f"EventId sets differ between events.csv and events_net.csv. "
             f"Only in events: {ids_ev - ids_evn}. "
             f"Only in events_net: {ids_evn - ids_ev}."
+        )
+
+
+# ---------------------------------------------------------------------------
+# ELT helpers
+# ---------------------------------------------------------------------------
+
+def _make_elt_events(n_events=200, seed=13):
+    """Minimal events_net_df for unit-testing build_elt()."""
+    rng   = np.random.default_rng(seed)
+    gross = rng.uniform(1e5, 50e6, size=n_events)
+    net   = gross * rng.uniform(0.3, 1.0, size=n_events)
+    return pd.DataFrame({
+        "EventId":        np.arange(1, n_events + 1, dtype=int),
+        "portfolio_gross": gross,
+        "portfolio_net":   net,
+    })
+
+_ELT_PATH  = os.path.join(_RES, "elt.csv")
+_SKIP_ELT  = pytest.mark.skipif(
+    not os.path.exists(_ELT_PATH),
+    reason="results/elt.csv not found — run `python run_all.py` first",
+)
+_SKIP_ELT_EVTN = pytest.mark.skipif(
+    not (os.path.exists(_ELT_PATH) and os.path.exists(_EVTN_PATH)),
+    reason="results/elt.csv or events_net.csv not found — run `python run_all.py` first",
+)
+
+# Reference TIV (sum of synthetic portfolio; used in reconciliation tolerance)
+_TOTAL_TIV_REF = 500_000_000.0
+
+
+# ---------------------------------------------------------------------------
+# TestEltReconciliation
+# ---------------------------------------------------------------------------
+
+@_SKIP_ELT
+class TestEltReconciliation:
+    """
+    Load-bearing guard: sum(AnnualRate × MeanLoss) from elt.csv equals the
+    AEP AAL from ylt.csv, for both gross and net series.
+
+    Identity: (1/N) × Σ_e portfolio_gross_e = (1/N) × Σ_y AggGross_y = YLT AAL_aep_gross.
+    Events partition years (each event belongs to exactly one year), so the sums are
+    identical by construction; floating-point order of addition may introduce < 1e-6
+    relative error.
+    """
+
+    @pytest.fixture(scope="class")
+    def elt(self):
+        return pd.read_csv(_ELT_PATH)
+
+    @pytest.fixture(scope="class")
+    def ylt(self):
+        if not os.path.exists(_YLT_PATH):
+            pytest.skip("results/ylt.csv not found — run `python run_all.py` first")
+        return pd.read_csv(_YLT_PATH)
+
+    def test_aal_gross_reconciles(self, elt, ylt):
+        elt_aal = float((elt["AnnualRate"] * elt["MeanLossGross"]).sum()) / 1e6
+        ylt_aal = float(ylt["AggGross"].mean()) / 1e6  # full precision — no rounding
+        rel_err = abs(elt_aal - ylt_aal) / max(ylt_aal, 1.0)
+        assert rel_err < 1e-6, (
+            f"ELT gross AAL {elt_aal:.8f} M vs YLT {ylt_aal:.8f} M "
+            f"(rel err {rel_err:.2e})"
+        )
+
+    def test_aal_net_reconciles(self, elt, ylt):
+        elt_aal = float((elt["AnnualRate"] * elt["MeanLossNet"]).sum()) / 1e6
+        ylt_aal = float(ylt["AggNet"].mean()) / 1e6    # full precision — no rounding
+        rel_err = abs(elt_aal - ylt_aal) / max(ylt_aal, 1.0)
+        assert rel_err < 1e-6, (
+            f"ELT net AAL {elt_aal:.8f} M vs YLT {ylt_aal:.8f} M "
+            f"(rel err {rel_err:.2e})"
+        )
+
+    def test_rate_uniform(self, elt):
+        n_years = round(1.0 / float(elt["AnnualRate"].iloc[0]))
+        expected = 1.0 / n_years
+        assert (elt["AnnualRate"] == expected).all(), \
+            "AnnualRate is not uniform 1/n_years across all events"
+
+    def test_rate_sum_equals_realized_frequency(self, elt):
+        n_years  = round(1.0 / float(elt["AnnualRate"].iloc[0]))
+        n_events = len(elt)
+        expected = n_events / n_years
+        got = float(elt["AnnualRate"].sum())
+        assert abs(got - expected) < 1e-9, (
+            f"sum(AnnualRate) {got:.8f} != n_events/n_years {expected:.8f}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# TestEltIntegrity
+# ---------------------------------------------------------------------------
+
+class TestEltIntegrity:
+    """build_elt() satisfies structural invariants on synthetic data."""
+
+    @pytest.fixture(scope="class")
+    def elt(self):
+        evn_df = _make_elt_events(n_events=200, seed=13)
+        return build_elt(evn_df, n_years=500, total_tiv=_TOTAL_TIV_REF)
+
+    def test_row_count(self, elt):
+        assert len(elt) == 200
+
+    def test_column_order(self, elt):
+        expected = ["EventId", "AnnualRate", "MeanLossGross", "MeanLossNet",
+                    "StdDevIndependent", "StdDevCorrelated", "ExposureValue"]
+        assert list(elt.columns) == expected
+
+    def test_annual_rate_uniform(self, elt):
+        assert (elt["AnnualRate"] == 1.0 / 500).all(), \
+            "AnnualRate must be exactly 1/n_years for every row"
+
+    def test_rate_sum(self, elt):
+        got      = float(elt["AnnualRate"].sum())
+        expected = 200 / 500
+        assert abs(got - expected) < 1e-10, \
+            f"sum(AnnualRate) {got:.10f} != n_events/n_years {expected:.10f}"
+
+    def test_stddev_independent_null(self, elt):
+        assert elt["StdDevIndependent"].isna().all(), \
+            "StdDevIndependent must be entirely null (v4 calibration)"
+
+    def test_stddev_correlated_null(self, elt):
+        assert elt["StdDevCorrelated"].isna().all(), \
+            "StdDevCorrelated must be entirely null (v4 calibration)"
+
+    def test_exposure_value_constant(self, elt):
+        assert (elt["ExposureValue"] == _TOTAL_TIV_REF).all(), \
+            f"ExposureValue must equal reference TIV {_TOTAL_TIV_REF:.0f} for every row"
+
+    def test_net_le_gross(self, elt):
+        assert (elt["MeanLossNet"] <= elt["MeanLossGross"] + 1e-6).all(), \
+            "MeanLossNet > MeanLossGross for some event"
+
+
+# ---------------------------------------------------------------------------
+# TestEltEventIdSchema
+# ---------------------------------------------------------------------------
+
+@_SKIP_ELT_EVTN
+class TestEltEventIdSchema:
+    """ELT EventId set matches events_net.csv EventId set (uniqueness + coverage)."""
+
+    @pytest.fixture(scope="class")
+    def elt(self):
+        return pd.read_csv(_ELT_PATH)
+
+    @pytest.fixture(scope="class")
+    def events_net(self):
+        return pd.read_csv(_EVTN_PATH)
+
+    def test_elt_eventid_unique(self, elt):
+        assert elt["EventId"].nunique() == len(elt), \
+            "EventId values are not unique in elt.csv"
+
+    def test_elt_eventid_matches_events_net(self, elt, events_net):
+        ids_elt = set(elt["EventId"].tolist())
+        ids_evn = set(events_net["EventId"].tolist())
+        assert ids_elt == ids_evn, (
+            f"EventId sets differ between elt.csv and events_net.csv. "
+            f"Only in elt: {ids_elt - ids_evn}. "
+            f"Only in events_net: {ids_evn - ids_elt}."
         )
