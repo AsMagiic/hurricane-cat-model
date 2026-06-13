@@ -331,15 +331,63 @@ The **v1 reference model** carries its own three classical anchors (frequency ->
 
 ---
 
+### Vulnerability re-architecture: explored and archived
+
+A full damage-state vulnerability framework (lognormal fragilities over five HAZUS
+damage states + a consequence function, the industry-standard approach used by RMS,
+Verisk, FPHLM) was built behind a config switch and validated in three stages:
+
+1. **Parameter derivation.** HAZUS, FPHLM, and the primary fragility literature were
+   confirmed to publish methodology but not calibrated parameters. Fragility medians
+   were therefore derived by triangulation (physical damage thresholds + the v2
+   midpoints + literature dispersion β≈0.16) and cross-checked against the logistic
+   baseline.
+2. **Internal validation passed** — bit-identical logistic fallback, cross-implementation
+   agreement to 1e-12, monotonicity and fragility hierarchy enforced.
+3. **Field validation failed, and the failure was instructive.** Tested against observed
+   manufactured-home damage (Hurricane Elena, 8 parks), the scheme missed by ~4× the
+   acceptance bar. Diagnosis revealed two compounding causes: (a) a conceptual anchoring
+   error — the median of "extensive damage" had been tied to the wind speed of 50% *mean*
+   damage ratio, a different physical quantity; and (b) a terrain-exposure mismatch — the
+   model is open-terrain while the survey sites were suburban. The second cause is
+   structural: no version of this model's vulnerability, logistic or damage-state, can be
+   cleanly field-validated without a site-exposure layer. The damage-state mode is retained
+   as a non-production option; production remains the logistic curve, with its heuristic
+   origin now explicitly documented.
+
+This is recorded as a finding, not a defect: internal consistency cannot detect a flawed
+reference — only field validation can, which is why it was done.
+
+---
+
 ## Limitations
 
 Stated plainly so results are read in context. The v2→v3 work resolved several earlier limitations — calibrated hazard parameters (Phase 1) and a physical wind field with intensity-dependent sizing, forward-motion asymmetry, and inland decay (Phase 2). What remains:
 
 - **Single λ, no clustering.** Storm frequency has no over-dispersion or seasonal clustering, which understates the aggregate (AEP) tail.
-- **No secondary uncertainty.** Damage ratios are deterministic given wind and construction — no variance around the mean curve.
+- **Vulnerability is heuristic and not field-validated.** The damage curves are
+  logistic functions whose midpoints were chosen to reproduce HAZUS's qualitative
+  fragility *behaviour* (the Mfg < WF < Mas < RC hierarchy, abrupt manufactured-home
+  failure, graceful RC degradation) — not calibrated to published numerical values.
+  HAZUS does not publish damage-ratio curves in extractable form (its damage model
+  is component-simulation → discrete damage states); neither does the certified
+  FPHLM (its published parameters are explicitly "illustrative"). A damage-state
+  re-architecture was built and tested (see "Vulnerability re-architecture" below)
+  but field validation against observed manufactured-home damage from Hurricane
+  Elena revealed that the model cannot be validated against field data without a
+  site-exposure layer it does not have.
+- **Open-terrain exposure, uniform.** A single gust factor (1.3, Exposure C, open
+  coastal terrain) is applied to every location; there is no per-location terrain
+  roughness. Field damage occurs in mixed terrain (suburban z0≈0.3), so the model's
+  open-terrain prediction is not directly comparable to field surveys without
+  modelling site exposure — the prerequisite for any clean field validation.
+- **No secondary uncertainty (in production), synthetic financials.** Production
+  damage ratios are deterministic given wind and construction; a stochastic
+  damage-state mode exists behind a config switch but does not ship as production.
+  The portfolio and financial terms remain synthetic (the hazard is calibrated to
+  HURDAT2).
 - **Single peril.** Wind only; no storm surge, inland flood, or demand surge.
 - **Track-frozen storm parameters.** Rmax, B, and Δp are held at their landfall values along a straight-line track; Coriolis latitude is fixed at landfall; inland decay continues even where a long track exits the peninsula over water.
-- **Illustrative vulnerability & financials.** The hazard is calibrated to HURDAT2; the portfolio, vulnerability curves, and financial terms remain synthetic.
 - **Reinsurance structure.** No reinstatements, no co-participation, no quota share — the net loss is flat at the retention by design.
 
 Each is a natural extension rather than a flaw.
@@ -348,6 +396,10 @@ Each is a natural extension rather than a flaw.
 
 ## Future extensions
 
+- **Site-exposure layer** (per-location terrain roughness) — the prerequisite for clean
+  field validation, identified by the Elena validation work.
+- **Field-validated vulnerability** — fragilities anchored to a validated source, revalidated
+  against historical damage once the exposure layer exists.
 - Generalized Pareto (peaks-over-threshold) tail modelling.
 - Secondary uncertainty (variance around vulnerability curves).
 - Multi-peril (storm surge, inland flood, demand surge).
