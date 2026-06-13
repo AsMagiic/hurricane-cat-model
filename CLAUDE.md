@@ -61,6 +61,7 @@ Python 3.11+, numpy, pandas, matplotlib, scipy, pyyaml, pytest
 - 2026-06-12 — Vulnerability re-architecture: migrating from v2 logistic damage-ratio curves to the industry-standard 5-state damage-state framework (HAZUS Hurricane TM Table 5-44). Source verification finding: HAZUS, FPHLM, and Pinelli et al. (2004) publish methodology but NOT calibrated parameters — Pinelli inputs are explicitly "hypothetical". All fragility parameters are own-derived by triangulation from public sources. Task 2a (calibration script) DONE. Task 2b (model integration, new config block, vulnerability mode switch) DONE — see Task 2b DoD entry and outcomes below.
 - 2026-06-12 — Task 2a DoD CLOSED — fragility_thetas.py derives DS1-DS4 theta/beta parameters by (1) fixing theta3=v2 midpoint, theta1=88*(midpoint/145), (2) grid-searching beta in [0.10,0.24] (0.25 infeasible: exp(0.5)=1.6487 > 145/88=1.6477), (3) Nelder-Mead with 3 fixed multistarts for theta2/theta4 minimising MSE vs v2 logistic over g=linspace(70,220,80). 19/19 tests pass; 128/128 suite green. See Task 2a outcomes section below.
 - 2026-06-12 — Task 2b DoD CLOSED — damage_state_mean vulnerability mode added behind config switch (CATMODEL_VULN_METHOD env-var; parallel to physics overrides). logistic_deterministic mode bit-identical to 3.0c production baseline (AAL $9,151,220 confirmed; validates loss.py kernel-builder refactor). B−A AAL delta: −$2,155,712 (−23.5%, CHARACTERIZED NOT ADJUDICATED — Task 3 validates against HAZUS Table 5-46); PREDICTION CORRECTION: WF dominates (54% of delta, −35.2% class drop), not Manufactured (20%, −13.6%) as predicted — WF deficit window wide (theta3=145, RMSE 0.067, gap spans ~95–160 mph); Masonry 26% of delta (sub-proportional to 50.7% TIV, consistent with RMSE 0.039); RC negligible. C−B threshold: PORTFOLIO-CONTINGENT — C−B ground-up +$15,109/yr (switch engaged, probe confirmed at gust=60 E[DR]=0.527%); C−B gross $0.00 deductible-absorbed-exactly; deferred to Task 3, re-evaluate if Phase 4 OED deductible structure changes. Masonry-RC sub-71 mph crossover: g*=71.0 mph, max violation 2.2e-5 DR, band [65, 69.8] mph; mechanism: per-class betas → theta ordering ≠ E[DR] ordering; bound < 2e-4 enforced by two explicit test asserts. 141/141 tests pass. Next: Step 3.1 Beta-distributed damage ratios.
+- 2026-06-12 — Task 3 DoD CLOSED — DS-mean fragility validated against HAZUS Elena 1985 field data (Table 5-43, 8 Manufactured Housing parks). Ex-ante criterion: MdAE<=16.5 pts AND MAE<=19.6 pts (=1.5× HAZUS certified errors MdAE=10.97, MAE=13.04). RESULT: FAIL. Our MdAE=68.4 pts, MAE=67.3 pts (~4× criterion). MECHANISM: conceptual anchoring error — theta3 was anchored to the logistic midpoint (50% MEAN DR), but in the DS framework theta3 is the MEDIAN OF DS3 (50% PROBABILITY of extensive/structural damage). These are different physical quantities. Internal validation passed (bit-identical, RMSE vs logistic, cross-impl ≤1e-12) because the reference shared the same anchoring error — internal consistency cannot detect a flawed reference. Elena field data exposes it: 0–40% observed major damage at 109–126 mph vs our 47–89%. Terrain check CONFIRMED (rough-site mean error 69.9 pts > Dauphin 49.2 pts; secondary signal, dwarfed by anchoring bias). Discrimination verdict: data CAN discriminate — DS-mean is measurably worse than HAZUS on this metric, NOT "both consistent with noise." Scope: Manufactured only (8 parks, 1 storm); WF/Masonry/RC unvalidated. Production default logistic_deterministic unchanged. Re-anchoring strategy is a separate decision. 165/165 tests pass. See Task 3 outcomes section.
 - 2026-06-12 — 3.0b Jensen question RESOLVED: wind_pressure.py fits via np.polyfit on ln(Δp)~ln(Vmax), no bias correction → coefficient `a` = exp(E[ln Δp]) = MEDIAN of conditional Δp. Therefore Δp = a·Vmax^b · exp(ε) is correct and needs NO −σ²/2 centering: the deterministic line was the median, and exp(ε) recovers the full distribution whose mean is median·exp(σ²/2). The +3% Jensen shift is not a bug — it corrects a pre-existing UNDER-estimate of mean Δp by the deterministic (median-based) implementation. Residual is statistically honest as-is. OPEN DESIGN DECISION (deferred to after 3.0c): should production (wpr=on) use the mean (current behavior, statistically unbiased for expected loss) or be re-centered to preserve the old median? Defer until the Rmax floor exists, since part of the +3% Δp mass lands in sub-physical Rmax that the floor will reshape — deciding the Δp center before the floor would be deciding on numbers that will change.
 
 ## Phase 1 calibration outcomes (HURDAT2) — full rationale in config/model_v3.yaml `source:` fields
@@ -235,7 +236,7 @@ logistic vs DS E[DR] + 4 fragility curves per class); outputs/fragility_thetas.c
 tests/test_fragility_calibration.py: 19 tests (pure functions, feasibility,
 determinism, sanity: thetas↑, SEP, cross-class hierarchy, beta bounds, E[DR]↑).
 
-**Task 2b DONE.** See Task 2b outcomes section below. Next: Step 3.1 Beta-distributed damage ratios.
+**Task 2b DONE.** See Task 2b outcomes section below. Task 3 (field validation) DONE — see Task 3 outcomes section. Next step (re-anchoring vs paradigm reconsideration) is a separate decision.
 
 ## Task 2b outcomes — DONE 2026-06-12 (damage_state_mean vulnerability mode, kernel-builder integration)
 `damage_state_mean` mode added behind config switch. `logistic_deterministic` (production
@@ -312,9 +313,73 @@ if Task 3 validation cares about the 65–70 mph gust band.
 Well below 2e-4 bound. Test `test_cross_class_hierarchy` now asserts: strict hierarchy
 g > 72 mph AND max sub-72 violation < 2e-4 (both with explicit assert, not silently weakened).
 
-**141/141 tests pass.** YAML-CSV weld test (`TestYamlCsvWeld`) enforces bit-equality of
-YAML thetas/betas to `outputs/fragility_thetas.csv` — future hand-edit of either file
-fails loudly.
+**141/141 tests pass (at Task 2b commit).** YAML-CSV weld test (`TestYamlCsvWeld`) enforces
+bit-equality of YAML thetas/betas to `outputs/fragility_thetas.csv` — future hand-edit of
+either file fails loudly.
+
+## Task 3 outcomes — DONE 2026-06-12 (field validation vs HAZUS Elena 1985)
+Read-only validation script: `analysis/validate_fragilities.py`. No config change, no
+simulation, no production-switch decision. Analytically evaluates P(DS>=3|gust) for
+Manufactured Housing at 8 Elena park gusts and compares to field-survey observations.
+
+**Ex-ante acceptance criteria (frozen before model touched the data):**
+- Primary: MdAE ≤ 16.455 pts  AND  MAE ≤ 19.560 pts
+- Derivation: 1.5 × HAZUS certified model's own errors on the same 8 parks (HAZUS MdAE=10.97, MAE=13.04)
+
+**PRIMARY TEST: FAIL**
+
+| Park | Gust (mph) | z0 | Obs major% | HAZUS% | Ours% | Our err (pts) | HAZUS err (pts) |
+|---|---|---|---|---|---|---|---|
+| Trav Park Mobile Bay | 109 | 0.3 | 0.0 | 4.0 | 46.7 | **46.7** | 4.0 |
+| Old Fort Village | 122 | 0.3 | 14.1 | 17.2 | 82.7 | **68.5** | 3.1 |
+| Imperial Estates | 122 | 0.3 | 6.1 | 14.0 | 82.7 | **76.6** | 7.9 |
+| Rolling Hills | 122 | 0.3 | 2.0 | 21.0 | 82.7 | **80.7** | 19.0 |
+| Isle of Pines North | 124 | 0.3 | 23.0 | 29.7 | 86.2 | **63.2** | 6.7 |
+| Isle of Pines South | 124 | 0.3 | 18.0 | 32.0 | 86.2 | **68.2** | 14.0 |
+| Trade Winds Dauphin | 126 | 0.1 | 40.0 | 61.6 | 89.2 | **49.2** | 21.6 |
+| Anchor Gautier | 126 | 0.3 | 4.0 | 32.0 | 89.2 | **85.2** | 28.0 |
+
+Our MdAE = **68.36 pts** (criterion ≤16.5) | Our MAE = **67.27 pts** (criterion ≤19.6) — ~4× the limit.
+
+**MECHANISM: Conceptual anchoring error — not a calibration miss.**
+theta3 was anchored to the logistic midpoint (the wind speed at 50% MEAN damage ratio).
+In the DS framework theta3 is the MEDIAN OF DS3 — the wind speed at which 50% PROBABILITY
+of extensive/structural damage is reached. These are different physical quantities:
+- "50% mean DR" integrates over all damage levels including DS1 and DS2 (light-moderate damage)
+- "50% probability of DS3" means half the population experiences structural damage
+
+The Task 2a/2b internal validation all passed (bit-identical, RMSE vs logistic 0.050–0.067,
+cross-impl ≤1e-12) because the reference standard was the logistic, which shared the same
+anchored midpoint. Internal consistency against a flawed reference cannot detect the error.
+Only field validation against independently observed outcomes can.
+
+**Terrain check: CONFIRMED (secondary signal)**
+- Rough-terrain parks (z0=0.3): mean error 69.9 pts
+- Exposed park (z0=0.1, Dauphin): error 49.2 pts
+- Prediction (over-predict more at rough sites) confirmed; terrain bias is real but
+  dwarfed by the anchoring bias (~4 vs ~50+ pts per-park).
+
+**Discrimination verdict: DATA CAN DISCRIMINATE**
+DS-mean over-predicts by ~4–6× the HAZUS benchmark error. The miss is far outside all
+binomial confidence bands (Wilson 95% CIs on observed fractions, n=12–175). This is NOT
+"both paradigms consistent with noise." The logistic E[DR] at Elena gusts (48–78%) also
+over-predicts observed E[DR] (0.5–43%), but DS-mean P(DS>=3) is the more severely biased
+metric for the major-damage comparison.
+
+**Scope caveat:** Manufactured Housing only — single construction class, 8 parks, 1 storm.
+WF/Masonry/RC: HAZUS Table 5-46 provides structural-level average damage states but no
+equivalent park-level independent field validation for those classes. This finding is
+specific to Manufactured Housing and to the major-damage metric.
+
+**Production status:** `logistic_deterministic` remains default. The adjudication question
+(which paradigm is closer to truth, and how to re-anchor theta3 if DS-mean is retained)
+is a separate decision deferred to the user after reviewing this validation.
+
+**Artifacts:** `outputs/fragility_validation.png` (3-panel: primary major-fraction per park
+with binomial CI + HAZUS overlay; 5-class DS diagnostic for Trav Park and Dauphin; medians
+vs Table 5-38 reference bands); `results/fragility_validation.csv` (not versioned).
+**165/165 tests pass.** tests/test_fragility_validation.py: 24 tests (dataset integrity ×16,
+major-fraction hand-checks ×3, determinism ×1, criterion constants ×2). Suite green at this commit.
 
 ## RNG discipline (Phase 2 onward — MANDATORY for all new stochastic physics)
 The legacy per-storm RNG stream is FROZEN. All new stochastic components draw
