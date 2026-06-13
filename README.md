@@ -11,12 +11,13 @@ The model builds a book of 1,000 insured locations, simulates 100,000 years of s
 ## The pipeline at a glance
 
 ```
-1. Exposure        generate_exposure.py   1,000 FL coastal locations, USD 500M TIV
+1. Exposure        generate_exposure.py   1,000 FL coastal locations, USD 500M TIV (OED v4)
 2. Hazard          hazard.py              stochastic moving-track storms -> wind per location
 3. Vulnerability   vulnerability.py       HAZUS-anchored damage curves by construction
-4. Financial       loss.py                ground-up -> gross (per-occurrence deductibles)
-5. Reinsurance     reinsurance.py         per-occurrence XoL tower -> net
-6. EP metrics      summary.py             AEP & OEP, gross & net, PMLs
+4. Financial       loss.py                ground-up -> gross (per-occurrence deductibles); assigns EventId
+5. Reinsurance     reinsurance.py         per-occurrence XoL tower -> net; carries EventId
+5.5. YLT build    outputs.py             sim -> results/ylt.csv (single source for all EP metrics)
+6. EP metrics      summary.py             reads ylt.csv -> AEP & OEP, gross & net, PMLs
                    run_all.py             runs the whole chain end-to-end
 ```
 
@@ -29,10 +30,16 @@ A synthetic but plausible book: **1,000 coastal locations, USD 500M total insure
 | Metric (USD M) | AEP Gross | AEP Net | OEP Gross | OEP Net |
 |---|---:|---:|---:|---:|
 | Average Annual Loss | 9.15 | 7.71 | 8.47 | 7.04 |
-| PML 1-in-100 | 122.4 | 70.3 | 113.2 | 60.0 |
-| PML 1-in-250 | 158.7 | 90.6 | 146.9 | 60.0 |
+| PML 1-in-5 | 9.7 | 9.7 | 9.3 | 9.3 |
+| PML 1-in-10 | 29.8 | 29.8 | 27.6 | 27.6 |
+| PML 1-in-25 | 63.8 | 60.0 | 58.3 | 58.3 |
+| PML 1-in-50 | 92.6 | 60.0 | 84.8 | 60.0 |
+| **PML 1-in-100** | **122.4** | **70.3** | **113.2** | **60.0** |
+| **PML 1-in-250** | **158.7** | **90.6** | **146.9** | **60.0** |
+| PML 1-in-500 | 181.5 | 105.4 | 169.3 | 60.0 |
+| PML 1-in-1000 | 204.2 | 120.0 | 191.1 | 60.0 |
 
-*AEP = Aggregate Exceedance Probability (full annual loss). OEP = Occurrence Exceedance Probability (largest single event of the year). Gross = before reinsurance; Net = after the XoL tower.*
+*AEP = Aggregate Exceedance Probability (full annual loss). OEP = Occurrence Exceedance Probability (largest single event of the year). Gross = before reinsurance; Net = after the XoL tower. Bold rows are the primary validation anchor. All values from a single 100,000-year run (seed 42); sourced from `results/ylt.csv` via `ep_utils`.*
 
 These are the **v3 numbers**: a hazard calibrated to HURDAT2 end-to-end — frequency, intensity, and landfall geography (Phase 1), and a physical wind field of Holland profiles, Vickery-Wadhera storm sizing, forward-motion asymmetry, and Kaplan-DeMaria inland decay (Phase 2). The AAL sits at **1.83% of TIV**, in the plausible range for a coastal Florida book. How the model evolved from its illustrative v2.0 baseline — and what each calibration step contributed — is documented in [Calibration: v2 → v3](#calibration-v2--v3).
 
@@ -284,6 +291,22 @@ The **hazard** parameters below are calibrated to HURDAT2 (v3, Phases 1–2). Th
 Peril: `WTC` (Strong wind from Tropical Cyclone). Currency: `USD`. Deductible type: Amount (pre-rounded integer; percent-of-TIV is not stored in OED to preserve bit-identity on load). The original taxonomy strings are preserved losslessly in `OrgConstructionCode` / `OrgOccupancyCode` (scheme = `MODEL`) — the provenance fields used by the read adapter for lossless round-trips. Note: `OccupancyCode=1051` is shared by Single Family and Mobile Home; the provenance fields are required for an invertible occupancy round-trip.
 
 > **OED carries exposure only.** Terrain roughness (Exposure C, gust factor 1.3) is a model assumption configured in `config/model_v3.yaml`; it is **not** wired from any OED field. Per-site terrain modelling is v4 scope.
+
+**Year Loss Table (YLT)** — `results/ylt.csv`
+
+The simulation → EP metric flow is: `run_all.py` → loss simulation → reinsurance → `model/outputs.py` builds `ylt.csv` → `model/summary.py` reads it → `ep_utils` computes all PMLs. `ep_utils` is the sole EP/PML kernel (convention p_k = k/N, no other interpolation).
+
+| Column | Type | Description |
+|---|---|---|
+| `Year` | int | Simulated calendar year (1..N_YEARS) |
+| `NumEvents` | int | Storm count in this year (0 for no-storm years) |
+| `AggGroundUp` | float | Annual aggregate ground-up loss (USD) |
+| `AggGross` | float | Annual aggregate gross loss (USD; net of per-policy deductible) |
+| `AggNet` | float | Annual aggregate net loss (USD; net of deductible + XoL recovery) |
+| `MaxOccGross` | float | Largest per-occurrence gross loss in the year (0 for no-storm years) |
+| `MaxOccNet` | float | Largest per-occurrence net loss in the year (0 for no-storm years) |
+
+`events.csv` carries a stable `EventId` (global monotonic 1-based integer, first column) which is the data-model primary key for future ELT work. `events_net.csv` carries the same `EventId`.
 
 **Hazard** (v3 — calibrated to HURDAT2; see [Calibration](#calibration-v2--v3))
 

@@ -1,26 +1,19 @@
 """
 Portfolio metrics summary for the Florida hurricane cat model (Step 6).
 
-Reads Step 4 and Step 5 outputs -- no new simulation.  All PML calculations
-go through ep_utils (single source of truth).
+Reads results/ylt.csv (built by model/outputs.py, Step 4.2).  All PML
+calculations go through ep_utils (single source of truth, convention p_k=k/N).
 
 Four EP views
 -------------
-  AEP gross   Annual aggregate loss (net of per-policy deductible only)
-  AEP net     Annual aggregate loss (net of deductible + XoL reinsurance)
-  OEP gross   Annual max per-occurrence loss (gross)
-  OEP net     Annual max per-occurrence loss (net of XoL)
-
-Net series reconstruction (from events_net.csv)
-------------------------------------------------
-  aggregate_net[yr]  = aggregate_gross[yr]
-                       - sum(recovery_total for all events in yr)
-  max_event_net[yr]  = max(portfolio_net for all events in yr)
-                       [0 for years with no events]
+  AEP gross   AggGross column of YLT (annual aggregate, net of per-policy deductible)
+  AEP net     AggNet column of YLT   (net of deductible + XoL reinsurance)
+  OEP gross   MaxOccGross column     (annual max per-occurrence, gross)
+  OEP net     MaxOccNet column       (annual max per-occurrence, net of XoL)
 
 Outputs
 -------
-  results/summary_metrics.csv   -- tidy CSV with all metrics
+  results/summary_metrics.csv   -- tidy CSV with all metrics (all configured RPs)
   outputs/ep_master.png         -- 2-panel AEP+OEP gross vs net plot
 """
 
@@ -33,14 +26,20 @@ import matplotlib.ticker as mticker
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+import sys as _sys
+_sys.path.insert(0, _ROOT)
+from model_config import load_model_cfg as _load_model_cfg
+_mcfg = _load_model_cfg()
+
 from model.ep_utils import oep_pml, ep_curve
 
-RESULTS_DIR = os.path.join(_ROOT, "results")
-OUT_DIR     = os.path.join(_ROOT, "outputs")
+RESULTS_DIR    = os.path.join(_ROOT, "results")
+OUT_DIR        = os.path.join(_ROOT, "outputs")
 os.makedirs(RESULTS_DIR, exist_ok=True)
 os.makedirs(OUT_DIR, exist_ok=True)
 
-RETURN_PERIODS = [100, 250]
+RETURN_PERIODS = _mcfg.summary.return_periods   # [5, 10, 25, 50, 100, 250, 500, 1000]
+_PLOT_RPS      = [100, 250]                      # headline pair annotated on the EP plot
 
 # Plot colours consistent with the rest of the model outputs
 _C_GROSS = "#1f77b4"   # blue
@@ -49,47 +48,28 @@ _C_FILL  = "#2ca02c"   # green (recovery band)
 
 
 # ---------------------------------------------------------------------------
-# Data loading and net series reconstruction
+# Data loading (from YLT — the single source for all EP series)
 # ---------------------------------------------------------------------------
 def _load(results_dir):
-    ann_path = os.path.join(results_dir, "annual_losses.csv")
-    evn_path = os.path.join(results_dir, "events_net.csv")
-
-    for p in (ann_path, evn_path):
-        if not os.path.exists(p):
-            raise FileNotFoundError(
-                f"{p} not found -- run model/loss.py then model/reinsurance.py first."
-            )
-
-    annual_df  = pd.read_csv(ann_path)
-    events_net = pd.read_csv(evn_path)
-    N_YEARS    = len(annual_df)
-
-    if len(events_net) > 0:
-        yr_rec = events_net.groupby("year")["recovery_total"].sum()
-        yr_net = events_net.groupby("year")["portfolio_net"].max()
-    else:
-        yr_rec = pd.Series(dtype=float)
-        yr_net = pd.Series(dtype=float)
-
-    annual_df["annual_recovery"] = annual_df["year"].map(yr_rec).fillna(0.0)
-    annual_df["aggregate_net"]   = (
-        annual_df["aggregate_gross"] - annual_df["annual_recovery"]
-    )
-    annual_df["max_event_net"]   = annual_df["year"].map(yr_net).fillna(0.0)
-
-    return annual_df, N_YEARS
+    ylt_path = os.path.join(results_dir, "ylt.csv")
+    if not os.path.exists(ylt_path):
+        raise FileNotFoundError(
+            f"{ylt_path} not found -- run model/outputs.py (Step 4.2) first."
+        )
+    ylt     = pd.read_csv(ylt_path)
+    N_YEARS = len(ylt)
+    return ylt, N_YEARS
 
 
 # ---------------------------------------------------------------------------
 # Compute all metrics
 # ---------------------------------------------------------------------------
-def _compute_metrics(annual_df, N_YEARS):
+def _compute_metrics(ylt, N_YEARS):
     series = {
-        "aep_g": annual_df["aggregate_gross"].to_numpy(),
-        "aep_n": annual_df["aggregate_net"].to_numpy(),
-        "oep_g": annual_df["max_event_gross"].to_numpy(),
-        "oep_n": annual_df["max_event_net"].to_numpy(),
+        "aep_g": ylt["AggGross"].to_numpy(),
+        "aep_n": ylt["AggNet"].to_numpy(),
+        "oep_g": ylt["MaxOccGross"].to_numpy(),
+        "oep_n": ylt["MaxOccNet"].to_numpy(),
     }
 
     aal = {k: float(v.mean()) for k, v in series.items()}
@@ -169,15 +149,15 @@ def _print_table(aal, pml, N_YEARS):
         f"{aal[c] / 1e6:>{W}.2f}" for c in COLS
     ))
 
-    # PML rows
+    # PML rows (all configured return periods)
     for rp in RETURN_PERIODS:
         print(f"{'PML 1-in-' + str(rp) + ' (USD M)':<22}" + "".join(
             f"{pml[(rp, c)] / 1e6:>{W}.1f}" for c in COLS
         ))
 
     print()
-    print("Net reduction (gross -> net):")
-    for rp in RETURN_PERIODS:
+    print("Net reduction (gross -> net) -- headline pair 1-in-100 / 1-in-250:")
+    for rp in _PLOT_RPS:
         red_aep = (pml[(rp, "aep_g")] - pml[(rp, "aep_n")]) / pml[(rp, "aep_g")] * 100
         red_oep = (pml[(rp, "oep_g")] - pml[(rp, "oep_n")]) / pml[(rp, "oep_g")] * 100
         print(f"  1-in-{rp:<5}"
@@ -204,7 +184,7 @@ def _save_csv(aal, pml, results_dir):
         {"metric": "AAL_M",
          **{cn: round(aal[ck] / 1e6, 3) for ck, cn in zip(COLS, COL_NAMES)}},
     ]
-    for rp in RETURN_PERIODS:
+    for rp in RETURN_PERIODS:              # all configured RPs
         rows.append({
             "metric": f"PML_1in{rp}_M",
             **{cn: round(pml[(rp, ck)] / 1e6, 2) for ck, cn in zip(COLS, COL_NAMES)},
@@ -247,11 +227,11 @@ def _plot_ep_master(series, aal, pml, N_YEARS, out_dir):
         ax.fill_betweenx(ep, net_desc / 1e6, gross_desc / 1e6,
                          alpha=0.10, color=_C_FILL, label="XoL recovery band")
 
-        # Return-period guidelines + PML annotations
+        # Return-period guidelines + PML annotations (headline pair only)
         key_g = "aep_g" if label == "AEP" else "oep_g"
         key_n = "aep_n" if label == "AEP" else "oep_n"
 
-        for rp in RETURN_PERIODS:
+        for rp in _PLOT_RPS:
             p = 1.0 / rp
             ax.axhline(p, color="grey", linestyle=":", lw=0.9, alpha=0.6)
 
@@ -345,11 +325,11 @@ def main():
     print("SUMMARY  (Step 6)")
     print("=" * 64)
 
-    annual_df, N_YEARS = _load(RESULTS_DIR)
+    ylt, N_YEARS = _load(RESULTS_DIR)
     print(f"Loaded: {N_YEARS:,} simulated years  |  "
-          f"{int((annual_df['n_events'] > 0).sum()):,} event years")
+          f"{int((ylt['NumEvents'] > 0).sum()):,} event years")
 
-    series, aal, pml = _compute_metrics(annual_df, N_YEARS)
+    series, aal, pml = _compute_metrics(ylt, N_YEARS)
     _validate(aal, pml)
     _print_table(aal, pml, N_YEARS)
     _save_csv(aal, pml, out_results_dir)

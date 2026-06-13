@@ -191,8 +191,9 @@ def run_simulation(n_years, seed=SEED):
     # storm 1 keeps slot 0 (unchanged from pre-3.1, bit-identical to 3.0c when off).
     damage_rng = np.random.default_rng([seed, 1])
 
-    event_rows  = []
-    annual_rows = []
+    event_rows      = []
+    annual_rows     = []
+    event_id_counter = 0   # global monotonic counter; 1-based, no RNG draws
 
     # Running sums for group AALs (divided by n_years at the end)
     sum_con_gu = np.zeros(n_con)
@@ -214,6 +215,7 @@ def run_simulation(n_years, seed=SEED):
         agg_gu = agg_gr = max_gr = 0.0
 
         for track, meta in year_events:
+            event_id_counter += 1
             winds   = wind_at_locations(
                 track,
                 StormParams(
@@ -242,6 +244,7 @@ def run_simulation(n_years, seed=SEED):
             sum_cty_gr += np.bincount(cty_idx, weights=gr, minlength=n_cty)
 
             event_rows.append({
+                "EventId":             event_id_counter,
                 "year":                yr,
                 "vmax":                float(meta["vmax_landfall"]),
                 "category":            int(meta["category"]),
