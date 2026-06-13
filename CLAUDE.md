@@ -24,8 +24,10 @@ This branch targets v3 — do not break v2 behaviour without a clear decision lo
    (stochastic WPR residual, off by default); Step 3.0c (physical Rmax floor, on
    by default); Step 3.1 (Gaussian copula common-shock Beta damage draws, off by
    default, sensitivity capability). Production baseline unchanged throughout.
-4. **Exposure & financials** — OED exposure format (LocPerilsCovered, etc.);
-   ELT and YLT outputs; reinstatements on XoL layers
+4. **Industry output formats** — OED exposure FORMAT (LocPerilsCovered, etc.)
+   as output packaging; ELT and YLT outputs; reinstatements on XoL layers.
+   (NOTE: real per-location site-exposure / terrain modelling is v4, not here —
+   see vulnerability closure entry.)
 5. **Backtesting** — reproduce Andrew 1992 and Ian 2022 industry loss estimates
    as validation benchmarks
 
@@ -63,7 +65,7 @@ Python 3.11+, numpy, pandas, matplotlib, scipy, pyyaml, pytest
 - 2026-06-12 — Task 3 DoD CLOSED — DS-mean fragility validated against HAZUS Elena 1985 field data (Table 5-43, 8 Manufactured Housing parks). Ex-ante criterion: MdAE<=16.5 pts AND MAE<=19.6 pts (=1.5× HAZUS certified errors MdAE=10.97, MAE=13.04). RESULT: FAIL. Our MdAE=68.4 pts, MAE=67.3 pts (~4× criterion). MECHANISM: conceptual anchoring error — theta3 was anchored to the logistic midpoint (50% MEAN DR), but in the DS framework theta3 is the MEDIAN OF DS3 (50% PROBABILITY of extensive/structural damage). These are different physical quantities. Internal validation passed (bit-identical, RMSE vs logistic, cross-impl ≤1e-12) because the reference shared the same anchoring error — internal consistency cannot detect a flawed reference. Elena field data exposes it: 0–40% observed major damage at 109–126 mph vs our 47–89%. Terrain check CONFIRMED (rough-site mean error 69.9 pts > Dauphin 49.2 pts; secondary signal, dwarfed by anchoring bias). Discrimination verdict: data CAN discriminate — DS-mean is measurably worse than HAZUS on this metric, NOT "both consistent with noise." Scope: Manufactured only (8 parks, 1 storm); WF/Masonry/RC unvalidated. Production default logistic_deterministic unchanged. Re-anchoring strategy is a separate decision. 165/165 tests pass. See Task 3 outcomes section.
 - 2026-06-12 — 3.0b Jensen question RESOLVED: wind_pressure.py fits via np.polyfit on ln(Δp)~ln(Vmax), no bias correction → coefficient `a` = exp(E[ln Δp]) = MEDIAN of conditional Δp. Therefore Δp = a·Vmax^b · exp(ε) is correct and needs NO −σ²/2 centering: the deterministic line was the median, and exp(ε) recovers the full distribution whose mean is median·exp(σ²/2). The +3% Jensen shift is not a bug — it corrects a pre-existing UNDER-estimate of mean Δp by the deterministic (median-based) implementation. Residual is statistically honest as-is. OPEN DESIGN DECISION (deferred to after 3.0c): should production (wpr=on) use the mean (current behavior, statistically unbiased for expected loss) or be re-centered to preserve the old median? Defer until the Rmax floor exists, since part of the +3% Δp mass lands in sub-physical Rmax that the floor will reshape — deciding the Δp center before the floor would be deciding on numbers that will change.
 - 2026-06-13 — Vulnerability re-architecture CLOSED: explored, field-validated, archived as non-production. Damage-state framework (Tasks 2a/2b/3) built and internally validated, but field validation vs Hurricane Elena failed ~4× the ex-ante bar. Two compounding causes: conceptual anchoring error (theta3 tied to 50% mean-DR, not 50% P(extensive)) AND terrain-exposure mismatch (model is open-terrain, survey sites suburban). KEY FINDING: no version of the vulnerability — logistic or DS — is field-validatable without a per-location site-exposure layer the v3 lacks. v2 midpoints confirmed (via project history) to be heuristic (HAZUS-behaviour-anchored, never calibrated to published values — which don't exist in extractable form). Production stays logistic_deterministic. v4 path: site-exposure layer → field-validated fragilities.
-- 2026-06-13 — Step 3.1 DoD CLOSED — Gaussian copula common-shock Beta damage draws implemented as a sensitivity capability (off by default; bit-identical to 3.0c baseline when off). damage_rng = np.random.default_rng([seed, 1]) — two-integer entropy SeedSequence, proven independent from the hazard spawn tree via N=100k/1M correlation probe (max |r|=0.00267 at N=1M, reduction 3.9×≈√10 vs N=100k, confirmed sampling noise). Smoke: AAL=$9,151,220.11 (diff $0.11 = display rounding). ρ-sweep (CV=0.40 placeholder): AAL flat across all ρ (Δ=0.12M); OEP-1000 monotone: 191.1→192.5→200.6→213.4→222.7M for ρ=0/0/0.3/0.7/1.0 (ρ=1 is +31.6M/+16.5% vs deterministic). Parameters uncalibrated (CV=0.40, ρ=0.5 illustrative). CV calibration deferred to v4 (MDR-dependent function requires per-event damage data); ρ calibration deferred to v4. Canonical seeding method for future simulation-level RNG chains that must not perturb hazard substreams. 18 tests pass (5 classes). Next: Phase 4 (exposure & financials).
+- 2026-06-13 — Step 3.1 DoD CLOSED — Gaussian copula common-shock Beta damage draws implemented as a sensitivity capability (off by default; bit-identical to 3.0c baseline when off). damage_rng = np.random.default_rng([seed, 1]) — two-integer entropy SeedSequence, independent of the hazard spawn tree by both structural design (SeedSequence entropy and spawn_key are distinct struct fields with separate inputs per NumPy docs; zero state collision across slots 0-19 confirmed by exhaustive check; no explicit non-collision theorem published for this cross-entropy-vs-spawn-key case — guarantee rests on the measured zero-collision check) and empirical probe (max |r|=0.00267 at N=1M, 3.9x reduction vs N=100k, confirmed sampling noise). Smoke: AAL=$9,151,220.11 (diff $0.11 = display rounding). rho-sweep (CV=0.40 placeholder): AAL flat across all rho (delta=0.12M); OEP-1000 monotone: 191.1->192.5->200.6->213.4->222.7M for rho=0/0/0.3/0.7/1.0 (rho=1 is +31.6M/+16.5% vs deterministic). Parameters uncalibrated (CV=0.40, rho=0.5 illustrative). CV calibration deferred to v4 (MDR-dependent function requires per-event damage data); rho calibration deferred to v4. Canonical seeding method for future simulation-level RNG chains that must not perturb hazard substreams. 18 tests pass (5 classes). Next: Phase 4 (industry output formats: OED, ELT/YLT, reinstatements). Site-exposure layer is v4.
 
 ## Phase 1 calibration outcomes (HURDAT2) — full rationale in config/model_v3.yaml `source:` fields
 - **Frequency**: λ=0.6576/yr — Poisson GLM (log link), single covariate standardized AMO
@@ -196,16 +198,26 @@ tail barely moves. At ρ=1 all locations share the same quantile (common shock) 
 collapses, the tail fattens significantly. This is the mechanism through which ρ inflates OEP.
 
 **RNG architecture:** `damage_rng = np.random.default_rng([seed, 1])` — two-integer entropy
-seeds a SeedSequence structurally separate from the hazard root `np.random.default_rng(seed)`.
-NumPy's SeedSequence mixes user entropy and spawn keys in different hash positions; the
-`[seed, 1]` tree cannot collide with any rng.spawn(k) child regardless of k.
-**Independence proven by correlation probe (not taken on trust):**
-N=100k: max |r| = 0.01055 at slot 5 (marginally above 3σ threshold of 0.009487, flagged).
-N=1M targeted (slot 5): |r| = 0.002674 < 3σ=0.003000. Reduction 3.9× ≈ √10 → confirmed
-sampling noise (structural correlation is N-invariant). PROVEN INDEPENDENT across all 10
-probed hazard spawn slots and the root direct stream.
-Hazard stream uncontaminated confirmed by bit-identical smoke: uncertainty=off → AAL = $9,151,220.11
-(diff from 3.0c integer anchor: $0.11 = display rounding only). PASS.
+seeds a SeedSequence distinct from the hazard root `np.random.default_rng(seed)`.
+Independence rests on two lines of evidence:
+- STRUCTURAL: NumPy's SeedSequence stores user entropy and spawn_key in distinct
+  struct fields; docs state spawn_key "users will not" set (so `SeedSequence([42,1])`
+  has `entropy=[42,1]` and `spawn_key=()`, while any `rng.spawn(k)[0]` child has
+  `entropy=42` and `spawn_key=(k,)` — separate, unshared inputs). Exhaustively
+  confirmed: zero state collision between `SeedSequence([42, 1])` initial state and
+  any of slots 0-19 of `SeedSequence(42)`'s spawn tree (checked via `generate_state(4)`
+  and `PCG64.state`). No explicit non-collision theorem is published for this
+  cross-entropy-vs-spawn-key case; the guarantee rests on the measured zero-collision
+  check, which the structural field disjointness makes implausible to violate
+  accidentally.
+- EMPIRICAL: Correlation probe across all 10 hazard spawn slots + root stream.
+  N=100k: max |r| = 0.01055 at slot 5 (marginally above 3sigma=0.009487, flagged for
+  targeted follow-up). N=1M targeted at slot 5: |r| = 0.002674 < 3sigma=0.003000.
+  Reduction 3.9x ~= sqrt(10) confirmed sampling noise (structural correlation is
+  N-invariant; empirical |r| decays as 1/sqrt(N) for independent streams).
+The structural argument is the guarantee; the probe is the verification.
+Hazard stream uncontaminated confirmed by bit-identical smoke: uncertainty=off
+-> AAL = $9,151,220.11 (diff from 3.0c integer anchor: $0.11 = display rounding only). PASS.
 
 **Parameters (NOT calibrated):**
 - `damage_cv = 0.40` — placeholder, order-of-magnitude; pointwise DR CV is larger than
