@@ -173,9 +173,33 @@ The WPR fitted to CONUS landfalls (Δp = a · Vmax^b) has calibrated scatter: th
 
 The AAL decrease (−0.259M, −2.8%) reflects the Jensen-driven Rmax contraction: storms are more compact on average, reaching fewer portfolio locations. The tail inversion — losses increase at 1-in-500/1000 — reflects variance: low-ε draws produce very broad storms with unusually large footprints.
 
-**Known limitation: sub-physical Rmax.** With wpr=on, high-ε draws near the 165 kt cap can push Δp well above 200 mb, driving V&W Rmax below the 8 km physical observational floor. In the 100k-year catalog, 153 storms (0.153%) have Rmax < 8 km under wpr=on (min observed: 1.2 km). These sub-physical compact storms produce near-zero loss (the wind core misses nearly every portfolio location), but they are a known artefact of applying the lognormal WPR scatter beyond the valid range of the V&W regression. The 3.0a MPI cap bounds Vmax but does not bound Δp when ε can amplify it. **This is why `wpr_residual` ships off by default: wpr=on is not production-ready until a physical Rmax floor (~8 km observational limit) is imposed.** This floor is deferred to Step 3.0c.
+**Known limitation: sub-physical Rmax.** With wpr=on, high-ε draws near the 165 kt cap can push Δp well above 200 mb, driving V&W Rmax below the 8 km physical observational floor. In the 100k-year catalog, 99 storms (0.099%) have Rmax < 8 km under wpr=on (min observed: 0.920 km) — the original figure of 153 / 1.2 km was an unverified projection from the 3.0a backlog, corrected by the real seed=42 run in Step 3.0c. These sub-physical compact storms produce near-zero loss (the wind core misses nearly every portfolio location), but they are a known artefact of applying the lognormal WPR scatter beyond the valid range of the V&W regression. The 3.0a MPI cap bounds Vmax but does not bound Δp when ε can amplify it. **This is why `wpr_residual` ships off by default: wpr=on is not production-ready until a physical Rmax floor (~8 km observational limit) is imposed.** This floor is deferred to Step 3.0c.
 
 **RNG architecture.** The ε draw uses a dedicated substream `wpr_rng`, spawned as a nested child of the V&W substream: `vw_rng = rng.spawn(1)[0]`; `wpr_rng = vw_rng.spawn(1)[0]`. This preserves bit-identical Rmax/B draws when wpr=off (same `vw_rng` slot per storm), and the parent `rng` stream is entirely unaffected (spawn uses SeedSequence counters, not bitgenerator state).
+
+### Common-shock secondary uncertainty (Step 3.1)
+
+The deterministic vulnerability returns the conditional mean damage ratio for each location given wind speed. Step 3.1 adds the ability to draw the *realised* damage ratio from a Beta distribution around that mean, with one important twist: a single common shock shared by all locations of the same storm.
+
+**Mechanism.** For each event, one common-shock draw Z~N(0,1) is shared by all locations of the storm. Each location's quantile is U_i = Φ(√ρ · Z + √(1−ρ) · ε_i), where ε_i is independent location-specific noise; U_i then maps to a Beta percentile for that location's damage ratio. The split is controlled by ρ ∈ [0,1]: at ρ=0 the draws are independent across locations; at ρ=1 all locations share the same quantile. The conceptual core: independent noise washes out over 1,000 portfolio locations through the law of large numbers — the AAL is barely affected at any ρ. The common shock does *not* wash out — it preserves correlation across locations under the same event, fattening the tail in proportion to ρ.
+
+**This is a sensitivity analysis, not a precision claim.** The absolute tail levels in the table below depend on the heuristic logistic vulnerability and an uncalibrated CV placeholder (CV=0.40). What is robust to those heuristics is *how much the tail moves with ρ* — the direction and the relative magnitude of the correlation effect.
+
+**ρ-sweep (seed=42, 100k years, CV=0.40):**
+
+| Config | ρ | AAL (M) | OEP-100 (M) | OEP-250 (M) | OEP-500 (M) | OEP-1000 (M) |
+|---|---:|---:|---:|---:|---:|---:|
+| Baseline (det.) | — | 9.15 | 113.23 | 146.88 | 169.27 | 191.08 |
+| ρ=0.0 | 0.0 | 9.27 | 113.55 | 148.24 | 169.66 | 192.49 |
+| ρ=0.3 | 0.3 | 9.26 | 115.37 | 154.31 | 180.43 | 200.55 |
+| ρ=0.7 | 0.7 | 9.26 | 119.40 | 160.53 | 191.41 | 213.41 |
+| ρ=1.0 | 1.0 | 9.26 | 123.07 | 166.28 | 197.00 | 222.72 |
+
+Three findings: AAL is flat across all ρ (delta 0.12M, within Monte Carlo noise) — the Beta draw is mean-preserving and LLN does the rest. At ρ=0, the tail barely moves (+1.4M at OEP-1000) — independent noise is diversified away across 1,000 locations. At ρ=1.0, the 1-in-1000 OEP rises to 222.7M — **+31.6M (+16.5%)** versus the deterministic baseline. The tail grows monotonically with ρ, confirming the mechanism: more common shock → less diversification → fatter tail.
+
+Ships off by default (`damage_uncertainty: off|on` in config); production baseline and `results/summary_metrics.csv` are unchanged. See `outputs/secondary_uncertainty_ep.png` for all five OEP curves overlaid.
+
+**Deferrals.** CV calibration requires per-event damage data to fit an MDR-dependent function (v4). ρ calibration requires multi-event observed loss data (v4). The current CV=0.40 and ρ=0.5 config defaults are illustrative; do not cite the absolute OEP levels as production estimates.
 
 ### Attribution waterfall — what each component contributes
 
@@ -372,7 +396,7 @@ Stated plainly so results are read in context. The v2→v3 work resolved several
   HAZUS does not publish damage-ratio curves in extractable form (its damage model
   is component-simulation → discrete damage states); neither does the certified
   FPHLM (its published parameters are explicitly "illustrative"). A damage-state
-  re-architecture was built and tested (see "Vulnerability re-architecture" below)
+  re-architecture was built and tested (see "Vulnerability re-architecture" above)
   but field validation against observed manufactured-home damage from Hurricane
   Elena revealed that the model cannot be validated against field data without a
   site-exposure layer it does not have.
@@ -381,11 +405,15 @@ Stated plainly so results are read in context. The v2→v3 work resolved several
   roughness. Field damage occurs in mixed terrain (suburban z0≈0.3), so the model's
   open-terrain prediction is not directly comparable to field surveys without
   modelling site exposure — the prerequisite for any clean field validation.
-- **No secondary uncertainty (in production), synthetic financials.** Production
-  damage ratios are deterministic given wind and construction; a stochastic
-  damage-state mode exists behind a config switch but does not ship as production.
-  The portfolio and financial terms remain synthetic (the hazard is calibrated to
-  HURDAT2).
+- **Secondary uncertainty: sensitivity capability only, financials synthetic.** A
+  common-shock Gaussian-copula Beta damage draw (Step 3.1) exists behind a config
+  switch (`damage_uncertainty: off|on`, default **off**) but does not ship as
+  production because CV (0.40) and ρ (0.5) are uncalibrated placeholders — see the
+  ρ-sweep table in the Calibration section. A damage-state mode (five-state HAZUS
+  fragility framework) also exists as a non-production option (see "Vulnerability
+  re-architecture" above). Production damage ratios remain deterministic given wind
+  and construction. The portfolio and financial terms remain synthetic (the hazard is
+  calibrated to HURDAT2).
 - **Single peril.** Wind only; no storm surge, inland flood, or demand surge.
 - **Track-frozen storm parameters.** Rmax, B, and Δp are held at their landfall values along a straight-line track; Coriolis latitude is fixed at landfall; inland decay continues even where a long track exits the peninsula over water.
 - **Reinsurance structure.** No reinstatements, no co-participation, no quota share — the net loss is flat at the retention by design.
@@ -401,7 +429,7 @@ Each is a natural extension rather than a flaw.
 - **Field-validated vulnerability** — fragilities anchored to a validated source, revalidated
   against historical damage once the exposure layer exists.
 - Generalized Pareto (peaks-over-threshold) tail modelling.
-- Secondary uncertainty (variance around vulnerability curves).
+- **Secondary uncertainty calibration** — calibrate CV as an MDR-dependent function and ρ (common-shock spatial correlation) from per-event loss data; the common-shock Gaussian-copula mechanism is built (Step 3.1) but ships with uncalibrated placeholder parameters pending v4 loss data.
 - Multi-peril (storm surge, inland flood, demand surge).
 - Reinstatements and quota-share in the reinsurance structure.
 - Reproduction in the open-source [Oasis LMF](https://oasislmf.org) framework.
