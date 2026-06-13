@@ -150,21 +150,65 @@ def _damage_draw(dr_mean, rng):
 # ---------------------------------------------------------------------------
 # Vectorized per-event loss kernel
 # ---------------------------------------------------------------------------
+
+def compute_event_loss(wind_sustained, *, tivs, deductibles, pol_limits,
+                       gust_factors, vuln_kernel, dmg_rng=None):
+    """
+    Pure, exposure-explicit per-event loss kernel.
+
+    Parameters (all keyword-only after wind_sustained)
+    ----------
+    wind_sustained : (n_loc,) float64 — 1-min sustained wind, mph
+    tivs           : (n_loc,) float64 — total insurable value, USD
+    deductibles    : (n_loc,) float64 — per-location deductible, USD
+    pol_limits     : (n_loc,) float64 — per-location policy limit, USD
+    gust_factors   : (n_loc,) float64 — per-location sustained-to-gust multiplier.
+        v4 terrain seam: replace np.full(n_loc, GUST_FACTOR) with a per-location
+        source derived from site-exposure classification.
+    vuln_kernel    : callable — (n_loc,) gust mph -> (n_loc,) mean damage ratio
+    dmg_rng        : optional RNG for Gaussian copula Beta draws (Step 3.1).
+        Note: the dmg_rng path assumes len(wind_sustained) == module n_loc
+        (_damage_draw closes over module-level n_loc/CV/rho); fully
+        exposure-agnostic only when dmg_rng is None.
+
+    Returns
+    -------
+    ground_up : (n_loc,) float64 — damage before deductible = dr * tiv
+    gross     : (n_loc,) float64 — damage after deductible, capped at pol_limit
+    dr        : (n_loc,) float64 — realized damage ratio (mean when dmg_rng is None)
+    """
+    gust      = wind_sustained * gust_factors
+    dr        = vuln_kernel(gust)
+    if dmg_rng is not None:
+        dr = _damage_draw(dr, dmg_rng)
+    ground_up = dr * tivs
+    gross     = np.clip(ground_up - deductibles, 0.0, pol_limits)
+    return ground_up, gross, dr
+
+
 def _event_loss(wind_sustained, dmg_rng=None):
     """
     (n_loc,) sustained wind mph  ->  (ground_up, gross) both (n_loc,) float64.
+
+    Thin wrapper around compute_event_loss that binds module-level exposure globals
+    and a uniform gust factor array (Exposure C, 1.3 scalar broadcast — v3 baseline).
 
     dmg_rng: when not None, realized damage ratios are drawn from a Beta
     distribution via _damage_draw (Gaussian copula common-shock). When None
     (default, damage_uncertainty=off), the deterministic mean curve is used —
     bit-identical to the pre-3.1 baseline.
     """
-    gust      = wind_sustained * GUST_FACTOR
-    dr        = _vuln_kernel(gust)
-    if dmg_rng is not None:
-        dr = _damage_draw(dr, dmg_rng)
-    ground_up = dr * tivs
-    gross     = np.clip(ground_up - deductibles, 0.0, pol_limits)
+    # v4 terrain seam: replace np.full with a per-location source when site-exposure is added
+    gust_factors = np.full(n_loc, GUST_FACTOR)
+    ground_up, gross, _ = compute_event_loss(
+        wind_sustained,
+        tivs=tivs,
+        deductibles=deductibles,
+        pol_limits=pol_limits,
+        gust_factors=gust_factors,
+        vuln_kernel=_vuln_kernel,
+        dmg_rng=dmg_rng,
+    )
     return ground_up, gross
 
 

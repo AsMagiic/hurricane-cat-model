@@ -509,3 +509,14 @@ summary:
     value: [5, 10, 25, 50, 100, 250, 500, 1000]
     units: "years"
     source: "Standard industry RP set. 100/250 are the primary validation anchor (committed baseline). 500/1000 sourced from first real run in Step 4.2. See model/summary.py."
+
+scenario:
+  florida_bbox:
+    lat_min: {value: 24.0,  units: "degrees_N", source: "Southern tip of FL Keys; captures all FL peninsula + panhandle landfalls."}
+    lat_max: {value: 31.5,  units: "degrees_N", source: "Northern FL panhandle."}
+    lon_min: {value: -87.6, units: "degrees_E", source: "Westernmost panhandle tip (Fort Pickens area). Excludes Alabama/Louisiana coasts."}
+    lon_max: {value: -79.5, units: "degrees_E", source: "FL Atlantic coast south of Cape Canaveral. Excludes Bahamas (76–79W)."}
+  track_interp_step_hr:
+    value: 1.0
+    units: "hours"
+    source: "Linear interpolation step for HURDAT2 track densification. Hourly spacing is standard for wind-field integration over a moving storm. See model/scenario.py."
