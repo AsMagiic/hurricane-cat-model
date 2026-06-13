@@ -31,7 +31,7 @@ _mcfg = load_model_cfg()
 
 from model.hazard        import simulate_year, LAMBDA
 from model.wind_field    import wind_at_locations, StormParams
-from model.vulnerability import GUST_FACTOR, GUST_THRESHOLD, CONSTRUCTION_PARAMS
+from model.vulnerability import GUST_FACTOR, GUST_THRESHOLD, CONSTRUCTION_PARAMS, build_event_kernel
 from model.ep_utils      import oep_pml, ep_curve, pml_rank_diagnostic
 
 # ---------------------------------------------------------------------------
@@ -63,14 +63,14 @@ print(f"Exposure: {n_loc:,} locations | TIV USD {TOTAL_TIV/1e6:.0f}M")
 print(f"Results  -> {RESULTS_DIR}")
 
 # ---------------------------------------------------------------------------
-# Precompute per-location vulnerability arrays (one-time, outside the loop)
+# Precompute per-location vulnerability kernel (one-time, outside the loop)
 #
-# Using module-level arrays so _event_loss() is a pure numpy kernel with no
-# Python-level per-location iteration.
+# build_event_kernel() captures per-location parameter arrays in a closure so
+# _event_loss() remains a pure numpy kernel with no Python-level iteration.
+# The kernel switches on vulnerability.method from config; logistic mode is
+# bit-identical to the old inlined midpoints/caps/ks expression.
 # ---------------------------------------------------------------------------
-midpoints = np.array([CONSTRUCTION_PARAMS[c]["midpoint"] for c in constructions], dtype=float)
-caps      = np.array([CONSTRUCTION_PARAMS[c]["cap"]      for c in constructions], dtype=float)
-ks        = np.array([CONSTRUCTION_PARAMS[c]["k"]        for c in constructions], dtype=float)
+_vuln_kernel = build_event_kernel(constructions)
 
 # Integer index arrays for fast group aggregation via np.bincount
 unique_constructions = list(CONSTRUCTION_PARAMS.keys())   # insertion order: Mfg, WF, Mas, RC
@@ -93,15 +93,12 @@ def _event_loss(wind_sustained):
     """
     (n_loc,) sustained wind mph  ->  (ground_up, gross) both (n_loc,) float64.
 
-    Inlines the damage ratio formula for speed (avoids repeated function-call
-    overhead over 70k events):
-      gust = wind * GUST_FACTOR
-      dr   = cap / (1 + exp(-k*(gust - midpoint)))   [if gust >= GUST_THRESHOLD]
-           = 0                                        [otherwise]
+    Delegates to the pre-built _vuln_kernel (logistic or DS-mean, set by
+    vulnerability.method in config).  Logistic mode is bit-identical to
+    the old inlined expression.
     """
     gust      = wind_sustained * GUST_FACTOR
-    raw       = caps / (1.0 + np.exp(-ks * (gust - midpoints)))
-    dr        = np.where(gust < GUST_THRESHOLD, 0.0, raw)
+    dr        = _vuln_kernel(gust)
     ground_up = dr * tivs
     gross     = np.clip(ground_up - deductibles, 0.0, pol_limits)
     return ground_up, gross

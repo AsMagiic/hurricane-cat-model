@@ -457,6 +457,36 @@ vulnerability:
       midpoint: {value: 185.0, units: "mph_gust",     source: "HAZUS-anchored (v2)"}
       cap:      {value: 0.75,  units: "fraction",      source: "HAZUS-anchored (v2)"}
       k:        {value: 0.045, units: "per_mph_gust",  source: "HAZUS-anchored (v2)"}
+  method:
+    value: "logistic_deterministic"
+    units: "label"
+    source: "Task 2b. Vulnerability model switch: 'logistic_deterministic' (v2 HAZUS-anchored logistic, production default, bit-identical to pre-2b baseline) | 'damage_state_mean' (5-state DS lognormal fragility, Task 2a calibration). Env-var override: CATMODEL_VULN_METHOD. See model/vulnerability.py."
+  ds_gust_threshold:
+    value: "on"
+    units: "label"
+    source: "Task 2b. Sub-switch (damage_state_mean mode only). 'on': apply 65-mph hard cutoff (preserves v2 onset behaviour for DS mode); 'off': let lognormal fragility tails handle onset (quantifies Manufactured AAL delta, Task 2b open decision). Env-var override: CATMODEL_DS_GUST_THRESHOLD. See model/vulnerability.py."
+  # 5-state damage-state fragility parameters (DS0-DS4).
+  # E[DR|g] = sum_{k=1}^{4} delta_lr_k * Phi(ln(g/theta_k)/beta)
+  # delta_lr = diff(consequence_loss_ratios[1:]) = [0.02, 0.08, 0.40, 0.50]
+  # All wind speeds: 3-s peak gust (mph).
+  # Parameters derived in calibration/fragility_thetas.py; see CLAUDE.md Task 2a.
+  damage_states:
+    consequence_loss_ratios:
+      value: [0.0, 0.02, 0.10, 0.50, 1.00]
+      units: "fraction"
+      source: "HAZUS Hurricane Technical Manual §8.1.4.3 p.8-14; DS0 (none) through DS4 (complete destruction). delta_lr=[0.02,0.08,0.40,0.50] used in kernel. See model/vulnerability.py."
+    Manufactured:
+      beta:   {value: 0.11,     units: "dimensionless", source: "calibration/fragility_thetas.py; CLAUDE.md Task 2a. Grid search beta in [0.10,0.24] minimising MSE vs v2 logistic over g=linspace(70,220,80)."}
+      thetas: {value: [66.7586, 74.5212, 110.0, 122.7906], units: "mph_gust", source: "calibration/fragility_thetas.py; CLAUDE.md Task 2a. DS1-DS4 lognormal medians (3-s peak gust, mph). theta3=v2 midpoint; theta1=88*(midpoint/145); theta2/theta4 Nelder-Mead multistart."}
+    Wood Frame:
+      beta:   {value: 0.13,     units: "dimensionless", source: "calibration/fragility_thetas.py; CLAUDE.md Task 2a."}
+      thetas: {value: [88.0, 100.2169, 145.0, 165.1301], units: "mph_gust", source: "calibration/fragility_thetas.py; CLAUDE.md Task 2a."}
+    Masonry:
+      beta:   {value: 0.15,     units: "dimensionless", source: "calibration/fragility_thetas.py; CLAUDE.md Task 2a."}
+      thetas: {value: [100.1379, 116.3437, 165.0, 191.7027], units: "mph_gust", source: "calibration/fragility_thetas.py; CLAUDE.md Task 2a."}
+    Reinforced Concrete:
+      beta:   {value: 0.20,     units: "dimensionless", source: "calibration/fragility_thetas.py; CLAUDE.md Task 2a."}
+      thetas: {value: [112.2759, 143.6503, 185.0, 226.7991], units: "mph_gust", source: "calibration/fragility_thetas.py; CLAUDE.md Task 2a."}
 
 reinsurance:
   # Per-occurrence XoL layers.  TOTAL_CAPACITY and TOP_OF_TOWER are derived in code.

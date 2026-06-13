@@ -102,6 +102,46 @@ def _materialize_construction_params(node, path):
     return result
 
 
+def _materialize_damage_states(node, path):
+    """
+    Reconstruct damage_states as a plain dict.
+
+    Input YAML shape:
+        consequence_loss_ratios: {value: [...], units: ..., source: ...}
+        ClassName:
+          beta:   {value: X, units: ..., source: ...}
+          thetas: {value: [t1,t2,t3,t4], units: ..., source: ...}
+
+    Output:
+        {"consequence_loss_ratios": [...], "ClassName": {"beta": X, "thetas": [...]}, ...}
+
+    Key names with spaces ("Wood Frame", "Reinforced Concrete") are preserved exactly.
+    """
+    result = {}
+    for key, val in node.items():
+        child_path = f"{path}.{key}"
+        if _is_leaf(val):
+            _validate_leaf(val, child_path)
+            result[key] = val["value"]
+        elif isinstance(val, dict):
+            row = {}
+            for param, leaf in val.items():
+                p = f"{child_path}.{param}"
+                if not _is_leaf(leaf):
+                    raise ValueError(
+                        f"Config error at '{p}': expected leaf {{value, units, source}}, "
+                        f"got {type(leaf)}"
+                    )
+                _validate_leaf(leaf, p)
+                row[param] = leaf["value"]
+            result[key] = row
+        else:
+            raise ValueError(
+                f"Config error at '{child_path}': unexpected node type {type(val)}"
+            )
+    return result
+
+
 def _materialize_layers(lst, path):
     """
     Reconstruct reinsurance layers as a list of plain dicts.
@@ -140,6 +180,8 @@ def _materialize(node, path=""):
         child = f"{path}.{k}" if path else k
         if k == "construction_params" and isinstance(v, dict):
             mapping[k] = _materialize_construction_params(v, child)
+        elif k == "damage_states" and isinstance(v, dict):
+            mapping[k] = _materialize_damage_states(v, child)
         elif k == "layers" and isinstance(v, list):
             mapping[k] = _materialize_layers(v, child)
         else:
@@ -191,6 +233,37 @@ def _apply_physics_overrides(tree):
 
 
 # ---------------------------------------------------------------------------
+# Vulnerability-switch env-var overrides (Task 2b)
+# ---------------------------------------------------------------------------
+
+_VULN_OVERRIDES = {
+    "CATMODEL_VULN_METHOD":       ("method",            frozenset({"logistic_deterministic", "damage_state_mean"})),
+    "CATMODEL_DS_GUST_THRESHOLD": ("ds_gust_threshold", frozenset({"on", "off"})),
+}
+
+
+def _apply_vulnerability_overrides(tree):
+    """Override vulnerability switches from CATMODEL_* env vars. No-op if none are set."""
+    vuln = tree.vulnerability
+    for env_key, (attr, allowed) in _VULN_OVERRIDES.items():
+        val = os.environ.get(env_key)
+        if val is None:
+            continue
+        if val not in allowed:
+            raise ValueError(
+                f"Environment variable {env_key}={val!r} is not a recognised value. "
+                f"Allowed: {sorted(allowed)}"
+            )
+        if not hasattr(vuln, attr):
+            raise ValueError(
+                f"Environment variable {env_key} targets vulnerability.{attr}, "
+                f"but that leaf does not exist in the materialized config tree. "
+                f"Check that config/model_v3.yaml contains vulnerability.{attr}."
+            )
+        setattr(vuln, attr, val)
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -203,6 +276,7 @@ def load_model_cfg():
     """Load and validate config/model_v3.yaml.  Returns _NS."""
     tree = _load(os.path.join(_CFG_DIR, "model_v3.yaml"))
     _apply_physics_overrides(tree)
+    _apply_vulnerability_overrides(tree)
     return tree
 
 

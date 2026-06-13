@@ -58,8 +58,9 @@ Python 3.11+, numpy, pandas, matplotlib, scipy, pyyaml, pytest
 - 2026-06-12 — Step 3.0b: nested spawn architecture is the canonical pattern for adding a new stochastic physics component without perturbing existing streams. `vw_rng = rng.spawn(1)[0]` (same slot per storm as before); `wpr_rng = vw_rng.spawn(1)[0]` (nested child — vw_rng.spawn() does not consume vw_rng's bitgenerator variates). spawn(2) from the parent RNG does NOT work — it increments the parent's n_children_spawned by 2 per storm, so storm N's children use different slots than before. Nested spawn from a child is the correct pattern.
 - 2026-06-12 — Step 3.0b DoD CLOSED — stochastic WPR residual implemented and tested. Ships off by default (wpr=off bit-identical to 3.0a baseline; _V3_ANCHORS unchanged). wpr=on effect: AAL −0.259M (−2.8%), OEP-100 −3.1M, OEP-250 −0.4M, OEP-500 +4.8M, OEP-1000 +10.4M. Sign reverses between 250 and 500 — variance dominates at deep tail. Sub-physical Rmax (< 8 km): 153/100k storms (0.153%, min 1.2 km) under wpr=on. wpr=on NOT production-ready: deferred to Step 3.0c physical Rmax floor. Config 6 added to waterfall.
 - 2026-06-12 — Step 3.0c DoD CLOSED — physical Rmax floor (8 km, on by default) implemented and tested. floor=off bit-identical to post-3.0b baseline; identity confirmed by reconciliation run (B raw<8km=99 == C floored=99, same 65,759-storm event count across all three scenarios, pure max() with zero RNG draws). Production baseline shift: AAL +$82,612 (+0.001%); all OEP/AEP quantiles unchanged (4 floored storms too compact to register at any return period). Under wpr=on+floor=on: min Rmax=8.000 km exactly, 0 storms < 8 km — 3.0c unblocks wpr=on for sub-physical concern. Remaining wpr=on question: mean vs median Δp centering (open design decision from 3.0b). Also corrected stale CLAUDE.md counts: 153→99 and min 1.2 km→0.920 km (the 153 was a 3.0a backlog projection transcribed unverified into 3.0b outcomes; real seed=42 100k-year run gives 99). Next: Step 3.1 Beta-distributed damage ratios.
-- 2026-06-12 — Vulnerability re-architecture: migrating from v2 logistic damage-ratio curves to the industry-standard 5-state damage-state framework (HAZUS Hurricane TM Table 5-44). Source verification finding: HAZUS, FPHLM, and Pinelli et al. (2004) publish methodology but NOT calibrated parameters — Pinelli inputs are explicitly "hypothetical". All fragility parameters are own-derived by triangulation from public sources. Task 2a (calibration script) DONE. Task 2b (model integration, new config block, vulnerability mode switch) NEXT.
+- 2026-06-12 — Vulnerability re-architecture: migrating from v2 logistic damage-ratio curves to the industry-standard 5-state damage-state framework (HAZUS Hurricane TM Table 5-44). Source verification finding: HAZUS, FPHLM, and Pinelli et al. (2004) publish methodology but NOT calibrated parameters — Pinelli inputs are explicitly "hypothetical". All fragility parameters are own-derived by triangulation from public sources. Task 2a (calibration script) DONE. Task 2b (model integration, new config block, vulnerability mode switch) DONE — see Task 2b DoD entry and outcomes below.
 - 2026-06-12 — Task 2a DoD CLOSED — fragility_thetas.py derives DS1-DS4 theta/beta parameters by (1) fixing theta3=v2 midpoint, theta1=88*(midpoint/145), (2) grid-searching beta in [0.10,0.24] (0.25 infeasible: exp(0.5)=1.6487 > 145/88=1.6477), (3) Nelder-Mead with 3 fixed multistarts for theta2/theta4 minimising MSE vs v2 logistic over g=linspace(70,220,80). 19/19 tests pass; 128/128 suite green. See Task 2a outcomes section below.
+- 2026-06-12 — Task 2b DoD CLOSED — damage_state_mean vulnerability mode added behind config switch (CATMODEL_VULN_METHOD env-var; parallel to physics overrides). logistic_deterministic mode bit-identical to 3.0c production baseline (AAL $9,151,220 confirmed). B−A AAL delta: −$2,155,712 (−23.5%); WF dominates (54% of delta, −35.2% class drop), not Manufactured (20%, −13.6%) as initially predicted — WF shoulder band [100–130 mph] has larger DS-logistic DR gap because theta3=145 puts DS3 onset deep into Cat-3 winds; Manufactured (theta3=110) closes the gap sooner. Masonry 26% of delta (consistent with 50.7% TIV share); RC negligible. C−B gross delta exactly $0.00 — sub-threshold Manufactured damage ($15,109/year ground-up) fully deductible-absorbed; threshold decision RESOLVED: threshold=on (default). Masonry-RC sub-71 mph crossover: g*=71.0 mph, max violation 2.2e-5 DR, band [65, 69.8] mph; bound < 2e-4 enforced by updated test. Kernel-builder pattern (`build_event_kernel`) pre-computes per-location parameter arrays in closure; `scipy.special.ndtr` for ~65M kernel evals per run. 141/141 tests pass. YAML-CSV weld test enforces bit-equality. Next: Step 3.1 Beta-distributed damage ratios.
 - 2026-06-12 — 3.0b Jensen question RESOLVED: wind_pressure.py fits via np.polyfit on ln(Δp)~ln(Vmax), no bias correction → coefficient `a` = exp(E[ln Δp]) = MEDIAN of conditional Δp. Therefore Δp = a·Vmax^b · exp(ε) is correct and needs NO −σ²/2 centering: the deterministic line was the median, and exp(ε) recovers the full distribution whose mean is median·exp(σ²/2). The +3% Jensen shift is not a bug — it corrects a pre-existing UNDER-estimate of mean Δp by the deterministic (median-based) implementation. Residual is statistically honest as-is. OPEN DESIGN DECISION (deferred to after 3.0c): should production (wpr=on) use the mean (current behavior, statistically unbiased for expected loss) or be re-centered to preserve the old median? Defer until the Rmax floor exists, since part of the +3% Δp mass lands in sub-physical Rmax that the floor will reshape — deciding the Δp center before the floor would be deciding on numbers that will change.
 
 ## Phase 1 calibration outcomes (HURDAT2) — full rationale in config/model_v3.yaml `source:` fields
@@ -202,10 +203,11 @@ the v2 threshold, so the DS scheme assigns real damage (E[DR]~1.7% at 65 mph,
 ~0.4% at 60 mph) exactly where the v2 logistic hard-cuts to zero. Storm
 peripheries cover large areas at every event, and Manufactured has the highest
 damage ratio — small ΔDR × large area × high frequency = potentially material
-AAL delta. Task 2b open decision: keep the 65-mph hard cutoff (preserving v2
-behaviour) or let damage onset emerge from the fragilities (the v2 threshold
-was source:'illustrative'). QUANTIFY the AAL delta under both choices before
-deciding. WF/Masonry/RC: decision moot (E[DR]@65 < 0.025%).
+AAL delta. Task 2b threshold decision RESOLVED: production uses threshold=on (default).
+C−B gross AAL = $0.00 exactly — sub-threshold Manufactured damage ($15,109/year
+ground-up, gust 65–66.76 mph) fully absorbed by per-location deductible before
+gross. Switch engaged confirmed by direct probe (kernel at gust=60: off→0.527%,
+on→0.0). WF/Masonry/RC: moot (E[DR]@65 < 0.025%). See Task 2b outcomes below.
 
 The E[DR] curves for Mfg/WF show a 'shoulder' (~0.10 plateau around
 85-105/100-120 mph respectively): DS1+DS2 saturate (envelope damage complete,
@@ -232,9 +234,79 @@ logistic vs DS E[DR] + 4 fragility curves per class); outputs/fragility_thetas.c
 tests/test_fragility_calibration.py: 19 tests (pure functions, feasibility,
 determinism, sanity: thetas↑, SEP, cross-class hierarchy, beta bounds, E[DR]↑).
 
-**Next (Task 2b):** add `damage_states:` block to config/model_v3.yaml; add
-vulnerability mode switch (`logistic` | `damage_states`) to vulnerability.py;
-propagate through loss.py; ship outputs unchanged in logistic mode (bit-identity).
+**Task 2b DONE.** See Task 2b outcomes section below. Next: Step 3.1 Beta-distributed damage ratios.
+
+## Task 2b outcomes — DONE 2026-06-12 (damage_state_mean vulnerability mode, kernel-builder integration)
+`damage_state_mean` mode added behind config switch. `logistic_deterministic` (production
+default) is bit-identical to 3.0c baseline; `damage_state_mean` is a full model-shape change.
+
+**Architecture:**
+- `config/model_v3.yaml`: new `method`, `ds_gust_threshold`, `damage_states` blocks under `vulnerability:`
+- `model_config.py`: `_materialize_damage_states` + `_VULN_OVERRIDES` + `_apply_vulnerability_overrides`
+  (parallel to `_apply_physics_overrides`; targets `tree.vulnerability`; env vars
+  `CATMODEL_VULN_METHOD`, `CATMODEL_DS_GUST_THRESHOLD`)
+- `model/vulnerability.py`: `build_event_kernel(constructions_array)` → vectorized closure built
+  once at module setup; `scipy.special.ndtr` (raw C-level CDF, ~65M evals/run);
+  switch-aware `damage_ratio()`
+- `model/loss.py`: `_vuln_kernel = build_event_kernel(constructions)` replaces inline
+  `midpoints/caps/ks` arrays; `_event_loss` delegates to kernel unchanged structurally
+- `tests/test_vulnerability.py`: 5 test classes, 13 tests: bit-identical logistic, YAML-CSV weld
+  (float parse of same string → deterministic bit-equality), cross-implementation ≤1e-12,
+  DS-mean properties (monotone, bounded, hierarchy, crossover bounds), kernel-vs-scalar
+
+**Three-config diagnostic (seed 42, 100k years):**
+
+| Config | Mode | Threshold | AAL gross ($) | OEP-100 (M) | OEP-250 (M) | AEP-100 (M) | AEP-250 (M) |
+|--------|------|-----------|---------------|-------------|-------------|-------------|-------------|
+| A: logistic | logistic_deterministic | — | 9,151,220 | 113.23 | 146.88 | 122.39 | 158.69 |
+| B: DS-mean, on | damage_state_mean | on | 6,995,508 | 96.75 | 130.08 | 102.98 | 138.02 |
+| C: DS-mean, off | damage_state_mean | off | 6,995,508 | 96.75 | 130.08 | 102.98 | 138.02 |
+
+Config A bit-identical to 3.0c production baseline. ✓
+
+**B−A: −$2,155,712 gross AAL (−23.5%)** — paradigm shift, not a small recalibration.
+The DS scheme has a qualitatively different curve shape (shoulder plateau + steeper rise)
+vs. the smooth logistic, with RMSE 0.050–0.067 across classes.
+
+**B−A per-construction decomposition (gross AAL, seed 42, 100k years):**
+
+| Class | A gross AAL ($) | B gross AAL ($) | Delta ($) | Δ% class | Share of Δ |
+|-------|-----------------|-----------------|-----------|----------|------------|
+| Wood Frame | 3,314,116 | 2,148,461 | −1,165,655 | −35.2% | 54.1% |
+| Masonry | 2,459,070 | 1,895,453 | −563,617 | −22.9% | 26.2% |
+| Manufactured | 3,122,662 | 2,696,610 | −426,052 | −13.6% | 19.8% |
+| RC | 255,373 | 254,984 | −389 | −0.2% | 0.02% |
+
+WF dominates at 54% of the delta — not Manufactured (20%) as the TIV-ratio argument
+suggested. Mechanism: WF's DS1+DS2 shoulder saturates at ~10% DR for gusts in [100–130 mph]
+before DS3 onset at theta3=145 mph. The logistic is at 15–30% in that band. The gap
+(10–20 pp) hits in the most frequent Cat-2/3 damage wind range, and WF carries 2.9×
+more TIV than Manufactured ($126.8M vs $43.7M). Manufactured (theta3=110) transitions
+into DS3 at lower gusts, so the shoulder gap closes sooner — smaller per-% drop (13.6%
+vs 35.2% for WF). Masonry (26% of delta) is proportional to its 50.7% TIV share with a
+22.9% class drop — no anomaly. RC negligible as expected.
+
+**C−B threshold decision — RESOLVED (deductible-absorbed, not truly zero):**
+- Probe: threshold=off kernel returns E[DR]=0.527% at gust=60 mph for Manufactured;
+  threshold=on returns 0.0 — switch engaged correctly
+- C ground-up AAL: $9,806,471 | B ground-up: $9,791,362 → **C−B ground-up = +$15,109/year**
+  (measured positive; sub-threshold Manufactured damage exists)
+- C gross AAL = B gross AAL = **$6,995,508.24 exactly → C−B gross = $0.00**
+- Mechanism: gust 65–66.76 mph → Manufactured E[DR] ≈ 0.3–0.8% → ground-up
+  ≈ $500–1,600 per location → fully absorbed by per-location deductible before gross
+- DECISION: threshold=on (production default). Revisit only if deductible structure
+  changes materially.
+
+**Masonry-RC crossover (DS-mean, g < 71 mph):**
+RC beta=0.20 fatter DS1 tail exceeds Masonry beta=0.15 for g ∈ [65, 69.8] mph (threshold=on
+active range). Analytical g* = 71.0 mph; max violation 2.2e-5 DR at gust=65.71 mph.
+Well below 2e-4 bound. Test `test_cross_class_hierarchy` now asserts: strict hierarchy
+g > 72 mph AND max sub-72 violation < 2e-4 (both with explicit assert, not silently weakened).
+Revisit if Task 3 validation probes the 65–70 mph gust band.
+
+**141/141 tests pass.** YAML-CSV weld test (`TestYamlCsvWeld`) enforces bit-equality of
+YAML thetas/betas to `outputs/fragility_thetas.csv` — future hand-edit of either file
+fails loudly.
 
 ## RNG discipline (Phase 2 onward — MANDATORY for all new stochastic physics)
 The legacy per-storm RNG stream is FROZEN. All new stochastic components draw
