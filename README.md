@@ -419,6 +419,131 @@ Each module is checked against independent references, not just "does it run":
 
 The **v1 reference model** carries its own three classical anchors (frequency -> lambda, AAL -> lambda*E[X], zero-loss years -> e^(-lambda)), now serving as the cross-check on the aggregate baseline.
 
+### Historical backtesting (Andrew 1992, Ian 2022)
+
+The model's validation evidence assembles in four levels. (1) **Verification** —
+unit checks against closed-form theoretical anchors: frequency convergence to λ,
+Poisson zero-loss floor, financial hierarchy invariants. (2) **Internal validation**
+— the v1 compound-Poisson aggregate and v3 location-level simulation converge on the
+same tail PMLs by entirely different mechanisms; the v2→v3 attribution waterfall
+closes exactly (each component reproduces its baseline bit-for-bit). (3) **External
+confrontation** — the model's hazard physics tested against real storm observations,
+described below. (4) **Out-of-sample frequency/intensity validation** — calibrated
+parameters (λ, lognormal Vmax) verified against held-out storm records — planned but
+not yet done.
+
+**Method.** The as-if backtest runs each storm's real HURDAT2 track and observed
+per-fix intensities deterministically — zero RNG draws — through the production wind
+field over the synthetic portfolio. Two footprints are computed:
+
+- **Instantaneous landfall footprint:** wind field evaluated at the single landfall fix
+  (observed Vmax, zero cumulative distance). Compared against NHC best-track R34/R50/R64
+  quadrant radii, which are also instantaneous — apples-to-apples.
+- **Max-over-track envelope:** maximum wind at each grid point over the full interpolated
+  track. Used for Cat-3+ swath extent — the damage-relevant footprint.
+
+Without the split, fast-moving Andrew's strongly elongated envelope conflates
+translation smearing with storm size. Andrew and Ian probe opposite regimes: Andrew
+was compact and fast (145 kt, ~34 km/h translation), Ian was broader and slower (130 kt,
+~21 km/h).
+
+**Storm parameters at landfall (V&W mean, deterministic):**
+
+| | Andrew 1992 | Ian 2022 |
+|---|---|---|
+| Landfall | 25.5°N, 80.2°W | 26.7°N, 82.2°W |
+| Landfall Vmax (HURDAT2) | 145 kt | 130 kt |
+| V&W Rmax | 16.1 nm (29.9 km) | 19.6 nm (36.2 km) |
+| Holland B | 1.384 | 1.334 |
+| Heading | 277° (W) | 61° (NE) |
+| Translation speed | 34.1 km/h | 21.0 km/h |
+
+**Instantaneous wind radii — Ian 2022** (observed: HURDAT2 Cayo Costa landfall fix):
+
+| Threshold | NE | SE | SW | NW |
+|---|---:|---:|---:|---:|
+| R64 modelled (nm) | 81.2 | 86.7 | 79.7 | 81.2 |
+| R64 observed (nm) | 30 | 40 | 30 | 45 |
+| Δ (mod − obs) | +51.2 | +46.7 | +49.7 | +36.2 |
+| R50 modelled (nm) | 118.5 | 120.4 | 109.3 | 105.0 |
+| R50 observed (nm) | 50 | 60 | 70 | 80 |
+| Δ (mod − obs) | +68.5 | +60.4 | +39.3 | +25.0 |
+| R34 modelled (nm) | 161.1 | 166.0 | 155.0 | 149.0 |
+| R34 observed (nm) | 130 | 150 | 100 | 150 |
+| Δ (mod − obs) | +31.1 | +16.0 | +55.0 | −1.0 |
+
+*Grid quantisation ~3 nm (0.05° step); deltas below 5 nm are within quantisation noise.*
+
+**Instantaneous wind radii — Andrew 1992** (no observed: HURDAT2 pre-2004 stores −999):
+
+| Threshold | NE | SE | SW | NW |
+|---|---:|---:|---:|---:|
+| R64 modelled (nm) | 88.6 | 70.7 | 66.9 | 84.7 |
+| R50 modelled (nm) | 121.9 | 97.8 | 92.4 | 120.1 |
+| R34 modelled (nm) | 179.3 | 130.0 | 124.8 | 178.1 |
+
+Andrew is historically documented as an exceptionally compact storm (small radius of
+maximum winds, narrow swath of catastrophic damage), consistent with the same
+over-estimate seen in Ian.
+
+**Max-over-track Cat-3+ (≥96 kt) swath:**
+
+| | Cross-track (nm) |
+|---|---:|
+| Andrew 1992 | 233.8 |
+| Ian 2022 | 109.9 |
+
+Andrew's envelope is strongly elongated along-track, confirming its apparent size is
+dominated by translation rather than storm extent. Cross-track width —
+translation-insensitive — is the cleaner storm-size metric; Andrew's 234 nm
+cross-track swath is itself over-spread relative to the storm's compact documented
+footprint, driven by the same outer-profile issue discussed below.
+
+**Discrepancy analysis.** The model over-estimates hurricane-force (64-kt) wind extent
+by ~2.3× on average, up to ~2.7× in the most over-spread quadrant, across Ian's
+quadrants. The bias is not a uniform scale error: the absolute offset averages ~46 nm
+at R64, ~48 nm at R50, then narrows to ~25 nm at the outer R34 threshold. The excess
+concentrates in the 50–64 kt band and shrinks toward the storm periphery. Two causes:
+
+*Primary — Holland radial decay.* The Holland (1980) profile is anchored to the observed
+surface Vmax at Rmax — the peak is correct. But the gradient-balance shape controls how
+the wind falls off with radius. For Ian, the model places the 64-kt contour at ~4.2×
+Rmax (~82 nm modelled / 19.6 nm Rmax), more than twice the observed ratio of ~1.9×
+(HURDAT2 average R64 ~36 nm / 19.6 nm Rmax). Real surface winds decay faster than the
+gradient-balance profile because boundary-layer processes not captured in the Holland
+formulation additionally attenuate the outer vortex. Crucially, **Rmax is not the source
+of the over-spread:** the V&W Rmax values (16.1 nm for Andrew, 19.6 nm for Ian) match
+these historically compact-to-moderate storms; the issue is the profile shape beyond Rmax.
+
+*Secondary — asymmetry without radial decay.* The forward-motion enhancement (`a·Vt`,
+added uniformly on the leading side) has no radial taper; it inflates the outer radii on
+the moving side without physical justification at large distances from the centre. This
+is a documented v3 limitation. The per-quadrant distribution of the over-spread is not
+cleanly attributable at n=1 storm: Ian's observed R50 peaks in the NW/SW quadrants (80
+and 70 nm respectively), while the model's right-of-track asymmetry (Ian heading 61°,
+right-of-track = SE quadrant) predicts SE/NE largest — the opposite of observation.
+The over-spread *magnitude* is the robust finding; its angular distribution is not.
+
+**Effect on portfolio EP metrics.** The over-spread biases modelled losses high, but
+the effect on the EP tail is buffered. The over-spread annulus carries 34–64 kt winds;
+these fall below the damage-rate inflection for all four construction types, and
+per-location deductibles (2–10% of TIV) absorb much of the marginal damage before it
+reaches the gross layer. The loss-bearing storm core — wind speeds above ~100 kt,
+concentrated near Rmax where the model is correctly anchored — drives the EP tail.
+
+**A natural v4 extension.** A radius-dependent surface-wind shape correction applied
+after the Holland gradient-balance step — matching the empirical observed surface-wind
+decay in the 1–3× Rmax band. The correction targets outer-profile shape specifically:
+not a flat amplitude reduction (which would lower the correctly-anchored Vmax), not an
+Rmax recalibration (Rmax is already well-calibrated), and not a uniform Holland-B
+adjustment (which shifts the full radial profile indiscriminately).
+
+**Scope.** Ian is compared on a wind-only basis. Ian's headline insured loss includes
+substantial storm-surge and inland-flood components this wind-only model does not
+represent; only wind-relevant spatial extent is validated here. The synthetic portfolio
+means portfolio-wide damage ratio is a diagnostic, not a validation target. Open-terrain
+uniform (Exposure C, gust factor 1.3) remains a model assumption throughout.
+
 ---
 
 ### Vulnerability re-architecture: explored and archived
