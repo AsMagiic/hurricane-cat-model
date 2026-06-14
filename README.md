@@ -41,6 +41,8 @@ A synthetic but plausible book: **1,000 coastal locations, USD 500M total insure
 
 *AEP = Aggregate Exceedance Probability (full annual loss). OEP = Occurrence Exceedance Probability (largest single event of the year). Gross = before reinsurance; Net = after the XoL tower. Bold rows are the primary validation anchor. All values from a single 100,000-year run (seed 42); sourced from `results/ylt.csv` via `ep_utils`.*
 
+**Read these with the documented hazard bias in mind.** External backtesting against Hurricanes Andrew and Ian ([Validation](#validation)) shows the modelled wind footprints over-estimate the radius of damaging (≥64 kt) winds by roughly 2× relative to observed best-track radii. This biases modelled losses **upward** — but the effect on the EP tail is *buffered*: the over-spread annulus carries sub-damage-threshold winds that are largely deductible-absorbed, while the loss-bearing storm core is correctly anchored at the observed peak intensity. The headline PMLs should therefore be read as upper-biased and, together with the uncalibrated CV/ρ placeholders, **not as production estimates**.
+
 These are the **v3 numbers**: a hazard calibrated to HURDAT2 end-to-end — frequency, intensity, and landfall geography (Phase 1), and a physical wind field of Holland profiles, Vickery-Wadhera storm sizing, forward-motion asymmetry, and Kaplan-DeMaria inland decay (Phase 2). The AAL sits at **1.83% of TIV**, in the plausible range for a coastal Florida book. How the model evolved from its illustrative v2.0 baseline — and what each calibration step contributed — is documented in [Calibration: v2 → v3](#calibration-v2--v3).
 
 **Two independent validations.** The v3 PMLs (OEP 113.2M / 146.9M at 1-in-100 / 1-in-250) land close to the original v1 parametric reference (100M / 142M) — two entirely different model architectures converging on the same tail. And every component of the v2→v3 change is decomposed in an attribution waterfall whose endpoints reproduce the v2 and v3 totals exactly.
@@ -603,7 +605,8 @@ reference — only field validation can, which is why it was done.
 
 Stated plainly so results are read in context. The v2→v3 work resolved several earlier limitations — calibrated hazard parameters (Phase 1) and a physical wind field with intensity-dependent sizing, forward-motion asymmetry, and inland decay (Phase 2). What remains:
 
-- **Single λ, no clustering.** Storm frequency has no over-dispersion or seasonal clustering, which understates the aggregate (AEP) tail.
+- **Wind-field over-spread.** External backtesting (Hurricanes Andrew and Ian, see [Validation](#validation)) shows the modelled footprints over-estimate the radius of damaging (≥64 kt) winds by ~2× versus observed best-track radii — a consequence of the Holland profile's gradient-balance decay applied as a surface wind, plus a forward-motion asymmetry term with no radial taper. The storm core (peak intensity at Rmax) is correctly anchored, so the bias concentrates in the moderate-wind outer annulus: modelled losses are biased upward, but the EP tail is buffered (the over-spread annulus is sub-threshold and largely deductible-absorbed). A radius-dependent surface-wind correction is the v4 direction.
+- **Single λ, no clustering.** The simulation samples storm frequency as i.i.d. Poisson at a single rate (λ = 0.6576, the GLM's current-climate estimate) — no year-to-year over-dispersion or seasonal clustering. The satellite-era landfall record is in fact over-dispersed (index of dispersion 1.48; marginal Poisson rejected, p = 0.01 — see [Validation](#validation)), confirming this assumption understates the aggregate (AEP) tail. A Negative-Binomial frequency is the v4 direction.
 - **Vulnerability is heuristic and not field-validated.** The damage curves are
   logistic functions whose midpoints were chosen to reproduce HAZUS's qualitative
   fragility *behaviour* (the Mfg < WF < Mas < RC hierarchy, abrupt manufactured-home
@@ -620,6 +623,7 @@ Stated plainly so results are read in context. The v2→v3 work resolved several
   roughness. Field damage occurs in mixed terrain (suburban z0≈0.3), so the model's
   open-terrain prediction is not directly comparable to field surveys without
   modelling site exposure — the prerequisite for any clean field validation.
+- **Stationary intensity climatology.** The landfall Vmax distribution is fit to the full HURDAT2 record assuming stationarity. An out-of-sample test on 2001–2024 landfalls rejects this (KS p = 0.002; observed Cat-4+ fraction ~33% vs ~12% fitted — see [Validation](#validation)), attributable to post-2000 intensification and/or evolving intensity-estimation methods (modern recon/SFMR) — the two cannot be separated from HURDAT2 Vmax alone. The model does not represent intensity non-stationarity.
 - **Secondary uncertainty: sensitivity capability only, financials synthetic.** A
   common-shock Gaussian-copula Beta damage draw (Step 3.1) exists behind a config
   switch (`damage_uncertainty: off|on`, default **off**) but does not ship as
