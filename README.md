@@ -551,6 +551,23 @@ represent; only wind-relevant spatial extent is validated here. The synthetic po
 means portfolio-wide damage ratio is a diagnostic, not a validation target. Open-terrain
 uniform (Exposure C, gust factor 1.3) remains a model assumption throughout.
 
+**Loss-domain check (`validation/zone_damage.py`).** County-level damage ratios from
+the deterministic scenario runner confirm three internal findings. (1) *Concentration
+gradient*: Andrew's Miami-Dade DR (83%) drops steeply to Palm Beach (24%, off-track)
+and Pinellas (0.2%), while Ian's Lee County DR (80%) drops less steeply to peripheral
+Pinellas (8%) — the loss footprint retains meaningful spatial structure in both storms.
+(2) *Footprint shape (concentration vs spread)*: both impact counties saturate near the
+vulnerability ceiling (~80–83% DR), so the 3 ppt peak difference is not informative at
+saturation; the discriminating signal is that Andrew's footprint concentrates sharply
+(consistent with a compact fast-moving Cat-5) while Ian's spreads broadly across the
+portfolio (consistent with a larger, slower storm). This is the loss-domain echo of the
+Level-1a compact-vs-broad radii finding. (3) *Over-spread propagation*: Palm Beach (24%
+DR, off-track for Andrew) provides a clean signal that the Level-1a hazard over-spread
+propagates into the loss domain; Collier (55% DR, on Andrew's exit path) combines
+legitimate exit-path exposure with over-spread amplification. Charlotte County — a real
+Ian-impact county — is absent from the synthetic coastal portfolio and is noted. Full
+results: `outputs/zone_damage_check.md`.
+
 ---
 
 ### Vulnerability re-architecture: explored and archived
