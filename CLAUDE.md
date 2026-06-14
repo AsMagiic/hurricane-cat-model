@@ -486,3 +486,24 @@ not `rng`'s — so `rng`'s counter stays at the pre-3.0b rate (exactly 1 spawn p
 `vw_rng.children[0]` (existing V&W draws) and `vw_rng.children[1]` (new component) —
 OR add another level of nesting from `wpr_rng`. One child per noise source; each
 spawned unconditionally; each consuming a FIXED number of draws per call.
+- 2026-06-13 — Level-4 out-of-sample validation IMPLEMENTED (validation/out_of_sample.py).
+  Part A (frequency distributional): A1 marginal Poisson dispersion, satellite era
+  1966-2024 (N=59): IoD=1.479, D=85.79, chi²(58) p=0.0103. IMPORTANT NUANCE: marginal
+  over-dispersion is the EXPECTED signature of AMO-driven active/quiet-season clustering
+  — the covariate the production GLM conditions on. Residual dispersion of the FITTED
+  GLM (the operative mis-specification diagnostic) NOT tested here: requires re-fitting
+  GLM with downloaded climate indices. Open item "NB/overdispersion comparison NOT run"
+  from Phase 1 CLOSED with correct attribution: NB-GLM is motivated as future work; does
+  NOT establish the production Poisson-GLM is mis-specified. Chi² p-value approximate at
+  low mean (lambda~0.48). A2 rate consistency (2006-2023): production lambda=0.6576
+  predicts 11.84 landfalls; observed 6; P(X<=6)=0.0502 — observed sits just inside the
+  lower 2.5% tail of the predictive distribution. Consistent with documented 2006-2016
+  FL major-hurricane drought (basin active / FL quiet); AMO is a basin-scale proxy, a
+  weak predictor of FL-specific landfall patterns. Part B (intensity OOS, n=15): train
+  1851-2000 (n=97): mu=4.4211, sigma=0.2406. KS D=0.4620, p=0.0019 — robust rejection
+  (low power at n=15 makes rejection hard; the effect is large). Cat4+ observed 33.3%
+  (5/15) vs fitted 11.8% (~3x); test median 105.4 kt vs fitted 86.7 kt. Attribution:
+  post-2000 intensification AND/OR evolving intensity-estimation methods (modern
+  recon/SFMR capturing peak intensities pre-satellite methods missed) — the two effects
+  cannot be separated from HURDAT2 Vmax alone. Non-stationarity is a declared model
+  limitation. 315/315 tests pass (13 new in tests/test_out_of_sample.py).

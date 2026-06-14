@@ -528,3 +528,37 @@ scenario:
     value: 2.0
     units: "degrees"
     source: "Grid padding beyond track bbox in degrees. Ensures the 34-kt ring (outermost threshold) is fully captured even when it extends beyond the observed track points. See validation/footprint_metrics.py."
+
+validation:
+  out_of_sample:
+    dispersion:
+      year_min:
+        value: 1966
+        units: "year"
+        source: "Satellite era start — consistent detection threshold for FL HU landfalls."
+      year_max:
+        value: 2024
+        units: "year"
+        source: "End of HURDAT2 record used."
+    rate_consistency:
+      year_min:
+        value: 2006
+        units: "year"
+        source: "Start of AMO covariate-available window; aligns with production GLM evaluation period."
+      year_max:
+        value: 2023
+        units: "year"
+        source: "End of AMO covariate-available window (2024 is NaN-dropped in frequency_glm.py)."
+    intensity:
+      train_year_max:
+        value: 2000
+        units: "year"
+        source: "Last year of training split. Pre-2001 record (n=97); pre-satellite Vmax bias non-directional per intensity.py."
+      test_year_min:
+        value: 2001
+        units: "year"
+        source: "First year of out-of-sample test split."
+      test_year_max:
+        value: 2024
+        units: "year"
+        source: "End of HURDAT2 record used."

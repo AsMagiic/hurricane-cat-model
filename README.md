@@ -428,9 +428,16 @@ Poisson zero-loss floor, financial hierarchy invariants. (2) **Internal validati
 same tail PMLs by entirely different mechanisms; the v2→v3 attribution waterfall
 closes exactly (each component reproduces its baseline bit-for-bit). (3) **External
 confrontation** — the model's hazard physics tested against real storm observations,
-described below. (4) **Out-of-sample frequency/intensity validation** — calibrated
-parameters (λ, lognormal Vmax) verified against held-out storm records — planned but
-not yet done.
+described below. (4) **Out-of-sample frequency/intensity validation** — *Frequency distributional:*
+marginal Poisson dispersion over the satellite era (IoD=1.48, p=0.010) finds
+over-dispersion — the expected signature of AMO-driven clustering that the production
+GLM conditions on; residual GLM dispersion not tested. Rate consistency 2006–2023:
+production λ predicts ~12 landfalls; 6 observed (P(X≤6)=0.050), consistent with the
+documented 2006–2016 FL major-hurricane drought (AMO is a weak FL-specific predictor).
+*Intensity (n=15, 2001–2024):* KS D=0.462, p=0.002 — robust rejection; recent Cat-4+
+fraction (33%) is ~3× the trained expectation (12%), attributed to post-2000
+intensification and/or evolving recon methods. Non-stationarity is a declared
+limitation. See `outputs/out_of_sample_validation.md`.
 
 **Method.** The as-if backtest runs each storm's real HURDAT2 track and observed
 per-fix intensities deterministically — zero RNG draws — through the production wind
