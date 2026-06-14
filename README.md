@@ -4,19 +4,20 @@
 
 The model builds a book of 1,000 insured locations, simulates 100,000 years of stochastic hurricanes as moving wind footprints, translates wind to damage through construction-specific vulnerability curves, applies per-policy financial terms, and prices the effect of an excess-of-loss (XoL) reinsurance tower on the portfolio's tail — reporting the loss distribution **gross and net of reinsurance**.
 
-> **Note on scope.** A learning / portfolio project built to demonstrate the conceptual engine behind production catastrophe models (RMS, Verisk Touchstone, CoreLogic). The *method* follow the conceptual structure of a vendor-model pipeline — exposure, hazard, vulnerability, financial, and reinsurance — not just aggregate loss simulation. The *input parameters* are illustrative, not calibrated to proprietary data. See [Assumptions](#parameters-and-assumptions) and [Limitations](#limitations).
+> **Note on scope.** A learning / portfolio project built to demonstrate the conceptual engine behind production catastrophe models (RMS, Verisk Touchstone, CoreLogic). The *method* follow the conceptual structure of a vendor-model pipeline — exposure, hazard, vulnerability, financial, and reinsurance — not just aggregate loss simulation. In v3, the hazard is calibrated to NOAA HURDAT2 end-to-end — frequency, intensity, and landfall geography (Phase 1), plus a physical wind field of Holland profiles, intensity-dependent storm sizing, forward-motion asymmetry, and inland decay (Phase 2). Vulnerability and financial parameters remain illustrative pending later phases. See [Assumptions](#parameters-and-assumptions) and [Limitations](#limitations).
 
 ---
 
 ## The pipeline at a glance
 
 ```
-1. Exposure        generate_exposure.py   1,000 FL coastal locations, USD 500M TIV
+1. Exposure        generate_exposure.py   1,000 FL coastal locations, USD 500M TIV (OED v4)
 2. Hazard          hazard.py              stochastic moving-track storms -> wind per location
 3. Vulnerability   vulnerability.py       HAZUS-anchored damage curves by construction
-4. Financial       loss.py                ground-up -> gross (per-occurrence deductibles)
-5. Reinsurance     reinsurance.py         per-occurrence XoL tower -> net
-6. EP metrics      summary.py             AEP & OEP, gross & net, PMLs
+4. Financial       loss.py                ground-up -> gross (per-occurrence deductibles); assigns EventId
+5. Reinsurance     reinsurance.py         per-occurrence XoL tower -> net; carries EventId
+5.5. YLT+SELT     outputs.py             sim -> results/ylt.csv (EP source) + results/elt.csv
+6. EP metrics      summary.py             reads ylt.csv -> AEP & OEP, gross & net, PMLs
                    run_all.py             runs the whole chain end-to-end
 ```
 
@@ -24,19 +25,213 @@ The model builds a book of 1,000 insured locations, simulates 100,000 years of s
 
 ## Headline results
 
-A synthetic but plausible book: **1,000 coastal locations, USD 500M total insured value (TIV)**, over 100,000 simulated years.
+A synthetic but plausible book: **1,000 coastal locations, USD 500M total insured value (TIV)**, over 100,000 simulated years, with a fully calibrated v3 hazard.
 
 | Metric (USD M) | AEP Gross | AEP Net | OEP Gross | OEP Net |
 |---|---:|---:|---:|---:|
-| Average Annual Loss | 10.67 | 9.37 | 9.57 | 8.30 |
-| PML 1-in-100 | 118.1 | 75.9 | 107.7 | 60.0 |
-| PML 1-in-250 | 149.4 | 94.3 | 133.7 | 60.0 |
+| Average Annual Loss | 9.15 | 7.71 | 8.47 | 7.04 |
+| PML 1-in-5 | 9.7 | 9.7 | 9.3 | 9.3 |
+| PML 1-in-10 | 29.8 | 29.8 | 27.6 | 27.6 |
+| PML 1-in-25 | 63.8 | 60.0 | 58.3 | 58.3 |
+| PML 1-in-50 | 92.6 | 60.0 | 84.8 | 60.0 |
+| **PML 1-in-100** | **122.4** | **70.3** | **113.2** | **60.0** |
+| **PML 1-in-250** | **158.7** | **90.6** | **146.9** | **60.0** |
+| PML 1-in-500 | 181.5 | 105.4 | 169.3 | 60.0 |
+| PML 1-in-1000 | 204.2 | 120.0 | 191.1 | 60.0 |
 
-*AEP = Aggregate Exceedance Probability (full annual loss). OEP = Occurrence Exceedance Probability (largest single event of the year). Gross = before reinsurance; Net = after the XoL tower.*
+*AEP = Aggregate Exceedance Probability (full annual loss). OEP = Occurrence Exceedance Probability (largest single event of the year). Gross = before reinsurance; Net = after the XoL tower. Bold rows are the primary validation anchor. All values from a single 100,000-year run (seed 42); sourced from `results/ylt.csv` via `ep_utils`.*
 
-**What the reinsurance tower buys:** gross-to-net PML reduction of **-44.3% / -55.1%** on a per-occurrence basis (1-in-100 / 1-in-250), and **-35.8% / -36.9%** on an aggregate-annual basis.
+**Read these with the documented hazard bias in mind.** External backtesting against Hurricanes Andrew and Ian ([Validation](#validation)) shows the modelled wind footprints over-estimate the radius of damaging (≥64 kt) winds by roughly 2× relative to observed best-track radii. This biases modelled losses **upward** — but the effect on the EP tail is *buffered*: the over-spread annulus carries sub-damage-threshold winds that are largely deductible-absorbed, while the loss-bearing storm core is correctly anchored at the observed peak intensity. The headline PMLs should therefore be read as upper-biased and, together with the uncalibrated CV/ρ placeholders, **not as production estimates**.
 
-A detail worth reading off the numbers: the **OEP net flattens at exactly USD 60M at both return periods**. Because the contiguous tower covers every dollar from the 60M retention up to 200M exhaustion, any single event that pierces the programme leaves the insurer with exactly its 60M retention — a clean illustration of how the tower caps per-occurrence net loss. The **AEP net does *not* flatten**, because a bad year can stack several retentions from multiple events, none of which individually triggers the full tower.
+These are the **v3 numbers**: a hazard calibrated to HURDAT2 end-to-end — frequency, intensity, and landfall geography (Phase 1), and a physical wind field of Holland profiles, Vickery-Wadhera storm sizing, forward-motion asymmetry, and Kaplan-DeMaria inland decay (Phase 2). The AAL sits at **1.83% of TIV**, in the plausible range for a coastal Florida book. How the model evolved from its illustrative v2.0 baseline — and what each calibration step contributed — is documented in [Calibration: v2 → v3](#calibration-v2--v3).
+
+**Two independent validations.** The v3 PMLs (OEP 113.2M / 146.9M at 1-in-100 / 1-in-250) land close to the original v1 parametric reference (100M / 142M) — two entirely different model architectures converging on the same tail. And every component of the v2→v3 change is decomposed in an attribution waterfall whose endpoints reproduce the v2 and v3 totals exactly.
+
+**What the reinsurance tower buys:** gross-to-net PML reduction of **−47.0% / −59.2%** on a per-occurrence basis (1-in-100 / 1-in-250). A detail worth reading off the numbers: the **OEP net flattens at exactly USD 60M at both return periods**. Because the contiguous tower covers every dollar from the 60M retention up to 200M exhaustion, any single event that pierces the programme leaves the insurer with exactly its 60M retention. The **AEP net does *not* flatten**, because a bad year can stack several retentions from multiple events, none of which individually triggers the full tower.
+
+---
+
+## Calibration: v2 → v3
+
+The v2 model used illustrative parameters throughout. Phase 1 of v3 replaces the
+hazard parameters — frequency, intensity, landfall geography, and storm track — with
+estimates calibrated to NOAA's HURDAT2 Atlantic hurricane database (1851–2024). This
+section documents how the headline numbers changed and, more importantly, why.
+
+### The headline shift
+
+| State | AAL gross (AEP) | What changed |
+|---|---:|---|
+| **v2.0** (frozen) | 10.67M | All hazard parameters illustrative |
+| **v3 intermediate** | 9.35M | + calibrated frequency & intensity |
+| **v3 Phase 1** | 3.58M | + calibrated landfall geography & track |
+
+The change decomposes into two jumps:
+
+**Jump 1 — frequency + intensity (−12%, 10.67M → 9.35M).** The annual landfall rate λ
+moved from the illustrative 0.7 to 0.6576, estimated via a Poisson GLM conditioned on
+the Atlantic Multidecadal Oscillation (current-climate value; see Step 1.3b). Intensity
+moved from discrete Saffir-Simpson category sampling to a continuous truncated-lognormal
+fitted to landfall Vmax. Both are modest, conservative changes — the mean storm
+intensity barely moved (−0.7%); the lognormal mainly corrected the over-representation
+of the extreme tail that uniform-within-category sampling introduced.
+
+**Jump 2 — landfall geography + track (−62%, 9.35M → 3.58M).** This is the large,
+revealing shift. The v2 model placed landfalls using hand-tuned coastal segment weights
+that happened to concentrate storms in the southeast and southwest — coincidentally
+where the synthetic portfolio holds its TIV. The calibrated landfall geography (a KDE
+over arc-length projected onto the TIGER coastline) distributes storms realistically
+along the entire Florida coast. The consequence: **26.6% of simulated landfalls now
+strike the panhandle (west of −84° longitude), where the portfolio has zero exposure.**
+Storm heading was also conditioned on the approach regime (Atlantic landfalls move NW,
+Gulf landfalls move NE — a von Mises distribution per regime, replacing a uniform
+±45° draw), which spreads tracks away from the densely-exposed east coast.
+
+### What this reveals
+
+The −62% drop is not a model defect — it is a correct emergent property. The realistic
+hazard exposes that the synthetic portfolio has a geographically concentrated risk
+profile: it captures southeast/southwest Florida risk but is blind to panhandle
+landfalls. When the hazard was illustrative, its hand-tuned weights happened to align
+with the TIV, inflating the AAL. A calibrated hazard removes that artificial alignment
+and shows the portfolio's true exposure footprint — exactly the kind of insight a
+realistic catastrophe model is supposed to surface.
+
+### A note on attribution granularity
+
+This analysis decomposes the change into two jumps (calibration-of-magnitude and
+calibration-of-geography). A finer, component-by-component attribution waterfall
+(frequency / intensity / geography / heading / and the Phase 2 wind physics) is
+deferred to Phase 2, where per-component configuration switches are built as
+infrastructure the wind-physics comparisons require anyway.
+
+### Phase 2 — physical wind field
+
+Phase 1 calibrated *where, how often, and how intense* storms strike. Phase 2 replaces the illustrative wind field itself — how a storm's wind translates to a footprint over the portfolio — with a calibrated physical chain. Every placeholder from v2 is replaced by a published, sourced component:
+
+| Component | v2 placeholder | v3 physical model |
+|---|---|---|
+| Wind-pressure | — | Δp fitted to CONUS landfalls (Atkinson-Holliday form) |
+| Storm size (Rmax) | uniform(30–55 km) | Vickery & Wadhera (2008), intensity-dependent |
+| Profile shape (B) | — | Vickery & Wadhera (2008), coupled to Rmax |
+| Radial profile | modified Rankine | Holland (1980) gradient-balance, anchored to Vmax |
+| Asymmetry | none | Schwerdt–HAZUS forward-motion correction |
+| Inland decay | 120 km e-folding | Kaplan & DeMaria (1995), coupled to translation speed |
+
+The chain is causal: sampled Vmax drives a central-pressure deficit Δp (via a wind-pressure relationship fitted to Atlantic CONUS landfalls), Δp and latitude drive the storm's size and profile peakedness (Vickery-Wadhera), and those feed the Holland gradient-balance profile. Forward motion then breaks the radial symmetry (right-of-track winds enhanced), and Kaplan-DeMaria decays the wind inland as a function of time since landfall — so a fast storm carries damaging wind further inland than a slow one.
+
+> **A methodological note on anchoring.** The Holland profile is parameterized by Δp, but our intensity calibration is on landfall Vmax (HURDAT2, n=112) — a better-constrained quantity than the WPR-derived Δp (n=85). So the Holland profile supplies the radial *shape*, while Vmax supplies the *amplitude*: the profile is normalized and scaled so its peak equals the sampled Vmax. This is standard practice in production cat models, and it keeps the model's intensity tied to its strongest calibration.
+
+### Intensity bounding via Maximum Potential Intensity (MPI)
+
+The landfall distribution is doubly truncated: lower at 64 kt (the HU definitional threshold) and upper at **165 kt** (the empirical Atlantic MPI at SST ≈ 30°C). The MPI formula is DeMaria & Kaplan (1994): V = 28.2 + 55.8·exp(0.1813·(T−30)) m/s ≈ 163 kt at T=30°C; the cap rounds to 165 kt, sitting 5 kt above the HURDAT2 Atlantic landfall record (Labor Day 1935, Dorian 2019) — a physical ceiling, not a data ceiling.
+
+**Why MPI rather than the record?** The observed record is a censored sample — storms stronger than any landfalling event may be physically possible; MPI bounds the attainable intensity thermodynamically.
+
+**Renormalization, not clipping.** The inverse-CDF sampler maps a uniform U∈[0,1) into [p_lb, p_ub] instead of [p_lb, 1). This rescales the density by the dimensionless factor (p_ub − p_lb)/(1 − p_lb) ≈ 0.9961; the observable effect on sub-cap intensities is a downward shift of less than 0.5 mph for Cat1–3 draws (< 111 kt) — gentle, as the 3.0a tests confirm. Clipping (capping post-draw) would pile probability mass at the ceiling and distort the CDF.
+
+**Before/after tail (seed=42, 100k years, real runs):**
+
+| Metric | cap=off (Phase 2) | cap=on (Step 3.0a) | Δ |
+|---|---:|---:|---:|
+| Max Vmax in catalog | ~280 mph (243 kt) | 189.9 mph (165 kt) | −90 mph |
+| Events above cap (%) | ~0.45% (~297/65k) | 0 | removed |
+| Max event gross (M) | 323.36 | 326.79 | +3.43 |
+| AAL gross (M) | 9.171 | **9.151** | −0.020 |
+
+| Return period | OEP cap=off | OEP cap=on | Δ OEP | AEP cap=off | AEP cap=on | Δ AEP |
+|---|---:|---:|---:|---:|---:|---:|
+| 1-in-100 | 113.44 M | **113.23 M** | −0.21 M | 122.69 M | **122.39 M** | −0.30 M |
+| 1-in-250 | 147.15 M | **146.88 M** | −0.27 M | 158.74 M | **158.69 M** | −0.05 M |
+| 1-in-500 | 169.02 M | **169.27 M** | +0.25 M | 182.47 M | **181.52 M** | −0.95 M |
+| 1-in-1000 | 190.54 M | **191.08 M** | +0.54 M | 205.08 M | **204.23 M** | −0.85 M |
+
+The aggregate (AEP) effect is uniformly downward across all return periods. The per-occurrence (OEP) sign reverses at 1-in-500/1000 — but this is not a renormalization artefact; the mechanism runs through the coupled V&W Rmax formula.
+
+**Why the OEP can rise under a cap.** The uncapped lognormal tail generates events at 200–240 kt whose V&W Rmax collapses to 1–6 km — geometrically sub-portfolio-resolution and physically implausible (no observed TC has Rmax < 8 km). These storms are near-zero-loss numerical artefacts: the wind core is so compact it misses virtually every portfolio location. Capping such a storm at 165 kt simultaneously expands its Rmax 5–18× (via the shared Δp chain: lower Vmax → lower Δp → larger Rmax), transforming a compact near-miss into a broad direct hit. For some track/exposure geometries the capped event produces *higher* portfolio losses. Pairwise comparison across all 100,000 simulated years confirms this: 1,619 years have max-event gross higher under cap=on than cap=off, with excess up to 150 M in the extreme case.
+
+**Magnitude.** The net effect averages away (AAL −0.020 M). The +0.25 M and +0.54 M OEP differences at 1-in-500 and 1-in-1000 are within Monte Carlo sampling noise — bootstrap 95% CIs overlap completely, and the differences are 5–10% of their respective CI half-widths (~4.6 M and ~5.5 M). These deep-tail signs are not interpretable as directional physical effects. The max event gross shift (cap=on 326.79 M > cap=off 323.36 M) follows the same mechanism: a different event becomes the portfolio maximum under the cap.
+
+The primary benefit of the MPI ceiling is eliminating the sub-physical compact-storm artefacts and bounding the V&W Rmax regression to its valid range — a prerequisite for credible TVaR at the 1-in-1000 return period.
+
+### Wind-pressure scatter (Step 3.0b)
+
+The WPR fitted to CONUS landfalls (Δp = a · Vmax^b) has calibrated scatter: the log-space residuals are Gaussian with σ = 0.2458 (n=85). In the base model this scatter is discarded — each storm's Δp is the deterministic OLS prediction. Step 3.0b activates the residual behind a config switch (`wpr_residual: off|on`, default **off**):
+
+```
+Δp = a · Vmax^b · exp(ε),   ε ~ N(0, σ²),   σ = 0.2458
+```
+
+**Propagation path.** The residual touches only the Δp input. Δp flows forward into Vickery–Wadhera Rmax (size) and B (peakedness), so the scatter in the WPR translates into correlated scatter in the storm's physical dimensions — broader or narrower core, sharper or flatter profile. The Holland amplitude remains anchored to Vmax (Phase 2 anchoring decision).
+
+**Jensen bias.** Because ε is log-additive, the mean Δp shifts upward by a multiplicative factor exp(σ²/2) ≈ 1.031 — a +3.1% bias relative to the deterministic WPR. Since Rmax decreases with Δp (V&W eq. 13), the mean storm size shrinks slightly; but the variance of storm size increases, fattening the tail.
+
+**Before/after (seed=42, 100k years, all Phase 2 + cap=on switches):**
+
+| Metric | wpr=off (baseline) | wpr=on | Δ |
+|---|---:|---:|---:|
+| AAL gross (M) | 9.151 | 8.892 | −0.259 |
+| OEP-100 (M) | 113.23 | 110.10 | −3.13 |
+| OEP-250 (M) | 146.88 | 146.50 | −0.38 |
+| OEP-500 (M) | 169.27 | 174.09 | **+4.81** |
+| OEP-1000 (M) | 191.08 | 201.44 | **+10.36** |
+| AEP-100 (M) | 122.39 | 119.44 | −2.95 |
+| AEP-250 (M) | 158.69 | 158.74 | +0.05 |
+| AEP-500 (M) | 181.52 | 185.54 | +4.02 |
+| AEP-1000 (M) | 204.23 | 215.92 | +11.69 |
+
+The AAL decrease (−0.259M, −2.8%) reflects the Jensen-driven Rmax contraction: storms are more compact on average, reaching fewer portfolio locations. The tail inversion — losses increase at 1-in-500/1000 — reflects variance: low-ε draws produce very broad storms with unusually large footprints.
+
+**Known limitation: sub-physical Rmax.** With wpr=on, high-ε draws near the 165 kt cap can push Δp well above 200 mb, driving V&W Rmax below the 8 km physical observational floor. In the 100k-year catalog, 99 storms (0.099%) have Rmax < 8 km under wpr=on (min observed: 0.920 km) — the original figure of 153 / 1.2 km was an unverified projection from the 3.0a backlog, corrected by the real seed=42 run in Step 3.0c. These sub-physical compact storms produce near-zero loss (the wind core misses nearly every portfolio location), but they are a known artefact of applying the lognormal WPR scatter beyond the valid range of the V&W regression. The 3.0a MPI cap bounds Vmax but does not bound Δp when ε can amplify it. **This is why `wpr_residual` ships off by default: wpr=on is not production-ready until a physical Rmax floor (~8 km observational limit) is imposed.** This floor is deferred to Step 3.0c.
+
+**RNG architecture.** The ε draw uses a dedicated substream `wpr_rng`, spawned as a nested child of the V&W substream: `vw_rng = rng.spawn(1)[0]`; `wpr_rng = vw_rng.spawn(1)[0]`. This preserves bit-identical Rmax/B draws when wpr=off (same `vw_rng` slot per storm), and the parent `rng` stream is entirely unaffected (spawn uses SeedSequence counters, not bitgenerator state).
+
+### Common-shock secondary uncertainty (Step 3.1)
+
+The deterministic vulnerability returns the conditional mean damage ratio for each location given wind speed. Step 3.1 adds the ability to draw the *realised* damage ratio from a Beta distribution around that mean, with one important twist: a single common shock shared by all locations of the same storm.
+
+**Mechanism.** For each event, one common-shock draw Z~N(0,1) is shared by all locations of the storm. Each location's quantile is U_i = Φ(√ρ · Z + √(1−ρ) · ε_i), where ε_i is independent location-specific noise; U_i then maps to a Beta percentile for that location's damage ratio. The split is controlled by ρ ∈ [0,1]: at ρ=0 the draws are independent across locations; at ρ=1 all locations share the same quantile. The conceptual core: independent noise washes out over 1,000 portfolio locations through the law of large numbers — the AAL is barely affected at any ρ. The common shock does *not* wash out — it preserves correlation across locations under the same event, fattening the tail in proportion to ρ.
+
+**This is a sensitivity analysis, not a precision claim.** The absolute tail levels in the table below depend on the heuristic logistic vulnerability and an uncalibrated CV placeholder (CV=0.40). What is robust to those heuristics is *how much the tail moves with ρ* — the direction and the relative magnitude of the correlation effect.
+
+**ρ-sweep (seed=42, 100k years, CV=0.40):**
+
+| Config | ρ | AAL (M) | OEP-100 (M) | OEP-250 (M) | OEP-500 (M) | OEP-1000 (M) |
+|---|---:|---:|---:|---:|---:|---:|
+| Baseline (det.) | — | 9.15 | 113.23 | 146.88 | 169.27 | 191.08 |
+| ρ=0.0 | 0.0 | 9.27 | 113.55 | 148.24 | 169.66 | 192.49 |
+| ρ=0.3 | 0.3 | 9.26 | 115.37 | 154.31 | 180.43 | 200.55 |
+| ρ=0.7 | 0.7 | 9.26 | 119.40 | 160.53 | 191.41 | 213.41 |
+| ρ=1.0 | 1.0 | 9.26 | 123.07 | 166.28 | 197.00 | 222.72 |
+
+Three findings: AAL is flat across all ρ (delta 0.12M, within Monte Carlo noise) — the Beta draw is mean-preserving and LLN does the rest. At ρ=0, the tail barely moves (+1.4M at OEP-1000) — independent noise is diversified away across 1,000 locations. At ρ=1.0, the 1-in-1000 OEP rises to 222.7M — **+31.6M (+16.5%)** versus the deterministic baseline. The tail grows monotonically with ρ, confirming the mechanism: more common shock → less diversification → fatter tail.
+
+Ships off by default (`damage_uncertainty: off|on` in config); production baseline and `results/summary_metrics.csv` are unchanged. See `outputs/secondary_uncertainty_ep.png` for all five OEP curves overlaid.
+
+**Deferrals.** CV calibration requires per-event damage data to fit an MDR-dependent function (v4). ρ calibration requires multi-event observed loss data (v4). The current CV=0.40 and ρ=0.5 config defaults are illustrative; do not cite the absolute OEP levels as production estimates.
+
+### Attribution waterfall — what each component contributes
+
+Phase 1 deferred a fine-grained, component-by-component attribution to Phase 2, because the wind-physics comparisons required per-component configuration switches as infrastructure anyway. With every component behind a switch (each verified to reproduce the baseline bit-for-bit when off), the full v2→v3 change decomposes cleanly. All runs share seed 42, so the deltas are physics, not Monte Carlo noise.
+
+| Step | AAL (USD M) | Δ AAL | OEP-100 | OEP-250 |
+|---|---:|---:|---:|---:|
+| v2 baseline | 3.58 | — | 58.3 | 84.9 |
+| + Rmax (V&W) | 3.13 | **−0.45** | 47.0 | 67.3 |
+| + Holland & B | 7.58 | **+4.45** | 101.3 | 135.0 |
+| + Asymmetry | 8.32 | **+0.74** | 105.3 | 138.7 |
+| + Decay (K-D) | 9.17 | **+0.86** | 113.4 | 147.2 |
+| + Cap (MPI) | **9.15** | **−0.02** | **113.2** | **146.9** |
+
+Three findings worth reading off the table:
+
+**The wind profile dominates.** Replacing the Rankine vortex with the Holland gradient-balance field accounts for **~80% of the AAL change** and nearly all of the PML uplift. The v2 Rankine profile decayed too steeply with distance; Holland's physical far-field reaches far more of the portfolio under every storm. This single component — not frequency, not intensity, not geography — is where the v2→v3 hazard difference lives.
+
+**Calibrating storm size *reduces* risk in isolation.** The V&W Rmax, fitted to real storms, produces a more compact core on average than the v2 uniform(30–55 km) placeholder — concentrating wind nearer the centre and reaching fewer portfolio locations. On its own it *lowers* the AAL (−0.45M). This is counterintuitive only until you see that "more realistic" and "higher risk" are not the same thing: calibration removed an inflated placeholder, it did not add hazard.
+
+**The components are sub-additive in the tail.** Run each component alone from the v2 base, sum the isolated effects, and compare to the full combined change: the sum of isolated OEP-250 effects is +82M, but the actual combined change is +62M. The −20M difference is a genuine **interaction term** — Holland's tail inflation is partly contained when it operates on the compact V&W core rather than the inflated placeholder. The model's components amplify each other less than additivity would predict, and that non-linearity is measured, not assumed.
+
+![Attribution waterfall](outputs/waterfall.png)
 
 ---
 
@@ -50,9 +245,9 @@ An insurer can comfortably pay for the *average* year; it is bankrupted by the *
 
 The model executes a six-step pipeline (orchestrated by `run_all.py`), each step an independent, validated module:
 
-**1 - Exposure** — `data/generate_exposure.py` builds 1,000 synthetic coastal homeowner locations across eight hurricane-exposed Florida counties, weighted toward the South-East metro where real exposure concentrates. Each location carries coordinates, TIV, construction class, occupancy, and a Florida-style hurricane deductible tier.
+**1 - Exposure** — `data/generate_exposure.py` builds 1,000 synthetic coastal homeowner locations across eight hurricane-exposed Florida counties, weighted toward the South-East metro where real exposure concentrates. Each location carries coordinates, TIV, construction class, occupancy, and a Florida-style hurricane deductible tier. The portfolio is serialised in **OED v4 format** (`data/oed/location.csv` + `data/oed/account.csv`) and consumed by the model via `model/exposure_io.py`. OED carries exposure only — terrain roughness is a model assumption (Exposure C, gust factor 1.3), not an OED field; per-site terrain is v4 scope.
 
-**2 - Hazard** — `model/hazard.py` generates a stochastic catalogue of **moving-track** storms. Frequency is Poisson; intensity follows a Saffir-Simpson distribution; each storm makes landfall along a coastline polyline and propagates inland under a modified Rankine vortex wind field, giving every location the maximum sustained wind it experienced during the storm's passage.
+**2 - Hazard** — `model/hazard.py` generates a stochastic catalogue of **moving-track** storms. Frequency is Poisson (λ calibrated via an AMO-conditioned GLM); intensity follows a truncated-lognormal fitted to HURDAT2 landfall Vmax; landfall geography is a KDE over the calibrated coastline. Each storm's wind field is **physical**: a central-pressure deficit drives Vickery-Wadhera storm sizing (Rmax) and profile peakedness (B), feeding a Holland (1980) gradient-balance profile, with forward-motion asymmetry and Kaplan-DeMaria inland decay. Every location receives the maximum sustained wind it experienced during the storm's passage.
 
 **3 - Vulnerability** — `model/vulnerability.py` maps wind to a damage ratio through HAZUS-anchored curves, **differentiated by construction type**, operating in 3-second peak gust (with a sustained-to-gust conversion).
 
@@ -64,13 +259,13 @@ The model executes a six-step pipeline (orchestrated by `run_all.py`), each step
 
 ### Reference parametric model (v1)
 
-The repository also retains the original **portfolio-aggregate** model — `model/aggregate_loss.py`, `model/ep_curve.py`, `model/sanity_check.py` — which modelled the same portfolio with a single compound-Poisson process: `N ~ Poisson(lambda)` events per year, each drawing a portfolio loss from a Lognormal severity. This is **not** the primary model; it is kept as an independent validation anchor. Reassuringly, the v2 spatial engine reproduces v1's Average Annual Loss to within ~2% (10.7M vs 10.5M) by an entirely different mechanism — strong evidence the location-level chain is assembled correctly.
+The repository also retains the original **portfolio-aggregate** model — `model/aggregate_loss.py`, `model/ep_curve.py`, `model/sanity_check.py` — which modelled the same portfolio with a single compound-Poisson process: `N ~ Poisson(lambda)` events per year, each drawing a portfolio loss from a Lognormal severity. This is **not** the primary model; it is kept as an independent validation anchor. Reassuringly, the v2 spatial engine reproduced v1's Average Annual Loss to within ~2% (10.7M vs 10.5M) by an entirely different mechanism, and the calibrated v3 model independently lands close to v1's tail PMLs (OEP 113.2M / 146.9M vs 100M / 142M at 1-in-100 / 1-in-250) — two architectures converging on the same risk by entirely different routes, strong evidence the location-level chain is assembled correctly.
 
 ---
 
 ## Parameters and assumptions
 
-All parameters are **illustrative** — plausible and chosen to make the dynamics visible, not estimated from data.
+The **hazard** parameters below are calibrated to HURDAT2 (v3, Phases 1–2). The **exposure, vulnerability, and reinsurance** parameters remain illustrative — plausible and chosen to make the dynamics visible, pending later phases.
 
 **Exposure**
 
@@ -81,17 +276,77 @@ All parameters are **illustrative** — plausible and chosen to make the dynamic
 | Counties | 8 FL coastal, weighted to the South-East (Miami-Dade, Broward, Palm Beach heaviest) |
 | Construction mix | Masonry 509 - Wood Frame 240 - Reinforced Concrete 172 - Manufactured 79 |
 | Hurricane deductibles | 2% / 5% / 10% of TIV (per occurrence) |
+| Format | OED v4 (Location + Account) |
 
-**Hazard**
+**OED v4 code mapping**
 
-| Parameter | Value |
-|---|---|
-| Frequency | `N ~ Poisson(lambda = 0.7)` storms/year |
-| Intensity | Saffir-Simpson category weights (Cat1 0.40 -> Cat5 0.04) |
-| Landfall | sampled along a FL coastline polyline, SE/SW segment weighting |
-| Radius of max winds | 30-55 km |
-| Track heading | +/-45 deg of north, inland filling with ~120 km e-folding decay |
-| Wind field | modified Rankine vortex; per-event max sustained wind per location |
+| Model taxonomy | OED ConstructionCode | OED OccupancyCode |
+|---|---:|---:|
+| Wood Frame | 5050 | — |
+| Masonry | 5100 | — |
+| Reinforced Concrete | 5150 | — |
+| Manufactured | 5350 | — |
+| Single Family | — | 1051 |
+| Condo | — | 1055 |
+| Mobile Home | — | 1051 |
+
+Peril: `WTC` (Strong wind from Tropical Cyclone). Currency: `USD`. Deductible type: Amount (pre-rounded integer; percent-of-TIV is not stored in OED to preserve bit-identity on load). The original taxonomy strings are preserved losslessly in `OrgConstructionCode` / `OrgOccupancyCode` (scheme = `MODEL`) — the provenance fields used by the read adapter for lossless round-trips. Note: `OccupancyCode=1051` is shared by Single Family and Mobile Home; the provenance fields are required for an invertible occupancy round-trip.
+
+> **OED carries exposure only.** Terrain roughness (Exposure C, gust factor 1.3) is a model assumption configured in `config/model_v3.yaml`; it is **not** wired from any OED field. Per-site terrain modelling is v4 scope.
+
+**Year Loss Table (YLT)** — `results/ylt.csv`
+
+The simulation → EP metric flow is: `run_all.py` → loss simulation → reinsurance → `model/outputs.py` builds `ylt.csv` → `model/summary.py` reads it → `ep_utils` computes all PMLs. `ep_utils` is the sole EP/PML kernel (convention p_k = k/N, no other interpolation).
+
+| Column | Type | Description |
+|---|---|---|
+| `Year` | int | Simulated calendar year (1..N_YEARS) |
+| `NumEvents` | int | Storm count in this year (0 for no-storm years) |
+| `AggGroundUp` | float | Annual aggregate ground-up loss (USD) |
+| `AggGross` | float | Annual aggregate gross loss (USD; net of per-policy deductible) |
+| `AggNet` | float | Annual aggregate net loss (USD; net of deductible + XoL recovery) |
+| `MaxOccGross` | float | Largest per-occurrence gross loss in the year (0 for no-storm years) |
+| `MaxOccNet` | float | Largest per-occurrence net loss in the year (0 for no-storm years) |
+
+`events.csv` carries a stable `EventId` (global monotonic 1-based integer, first column) which is the data-model primary key for ELT work. `events_net.csv` carries the same `EventId`.
+
+**Sampled Event Loss Table (SELT)** — `results/elt.csv`
+
+One row per simulated event. This is a **sampled ELT** (not a rated catalog): because every event in the catalog is sampled once from a 100,000-year simulation, its `AnnualRate = 1/N_years = 1/100,000`. EP metrics continue to flow from the YLT — the SELT is a parallel standard representation for event-level work and (v4) integration with OED platforms.
+
+| Column | Type | Description |
+|---|---|---|
+| `EventId` | int | Stable monotonic 1-based PK (matches `events.csv` / `events_net.csv`) |
+| `AnnualRate` | float | `1 / N_years = 0.00001` for every event (uniform; sampled-event-set convention) |
+| `MeanLossGross` | float | `portfolio_gross` — gross loss for this event (USD) |
+| `MeanLossNet` | float | `portfolio_net` — net loss after XoL recoveries (USD) |
+| `StdDevIndependent` | float | **NaN** — deferred to v4 (requires calibrated CV and moment treatment of deductible/limit nonlinearity) |
+| `StdDevCorrelated` | float | **NaN** — deferred to v4 (requires calibrated spatial ρ) |
+| `ExposureValue` | float | Reference portfolio TIV (USD 500,000,000; constant — per-event affected TIV is v4) |
+
+**AAL reconciliation identity.** Because events partition years (each event belongs to exactly one simulated year):
+
+```
+sum(AnnualRate × MeanLossGross) = (1/N) × Σ_e portfolio_gross_e
+                                = (1/N) × Σ_y AggGross_y
+                                = mean(AggGross_y)   ← YLT AEP-gross AAL
+```
+
+Same identity holds for net. This is enforced by `tests/test_outputs.py::TestEltReconciliation` (relative error < 1e-6).
+
+**Hazard** (v3 — calibrated to HURDAT2; see [Calibration](#calibration-v2--v3))
+
+| Parameter | Value | Source |
+|---|---|---|
+| Frequency | `N ~ Poisson(λ = 0.6576)` storms/year | AMO-conditioned Poisson GLM, satellite era |
+| Intensity | truncated-lognormal on landfall Vmax (μ_log 4.4362, σ_log 0.2518) | MLE fit, HURDAT2 1851–2024 (n=112) |
+| Landfall geography | KDE over arc-length of the TIGER coastline | HURDAT2 CONUS landfalls |
+| Wind-pressure | Δp = a·Vmax^b (b≈1.72) | fitted to CONUS satellite-era landfalls (n=85) |
+| Storm size (Rmax) | intensity-dependent, ln(Rmax) = f(Δp², lat) | Vickery & Wadhera (2008) |
+| Profile shape (B) | B = f(Rmax, lat), coupled to Rmax | Vickery & Wadhera (2008) |
+| Radial profile | Holland (1980) gradient-balance, anchored to Vmax | Holland (1980) |
+| Asymmetry | forward-motion, a·Vt right-of-track enhancement | Schwerdt et al. (1979) / HAZUS |
+| Inland decay | exponential in time since landfall, coupled to Vt | Kaplan & DeMaria (1995) |
 
 **Vulnerability** (3-second gust, midpoint = gust at 50% damage)
 
@@ -104,15 +359,17 @@ All parameters are **illustrative** — plausible and chosen to make the dynamic
 
 Gust factor 1.3 (open terrain, Exposure C); damage forced to zero below a 65 mph gust threshold.
 
-**Reinsurance** — per-occurrence XoL tower
+**Reinsurance** — per-occurrence XoL tower with finite reinstatements (`config/reinsurance.yaml`)
 
-| Layer | Structure | Covers per-event loss |
-|---|---|---|
-| Working | 40M xs 60M | 60M - 100M |
-| Middle | 50M xs 100M | 100M - 150M |
-| Cat high | 50M xs 150M | 150M - 200M |
+| Layer | Structure | Covers per-event loss | n reinstatements | Annual agg limit |
+|---|---|---|---:|---:|
+| Layer 1 | 40M xs 60M | 60M - 100M | 1 | 80M |
+| Layer 2 | 50M xs 100M | 100M - 150M | 1 | 100M |
+| Layer 3 | 50M xs 150M | 150M - 200M | 1 | 200M |
 
-60M retention, 140M total capacity, 200M exhaustion.
+60M retention, 140M total capacity, 200M exhaustion. Annual aggregate limit = `occ_limit × (1 + n_reinstatements)` per layer. Within a year, events are processed in EventId order; once a layer's annual aggregate is exhausted, subsequent events receive no recovery from that layer. **The reinstatement premium is pro-rata to amount:** `reinst_prem = base_premium × (reinstated_amount / occ_limit) × 100%`. Base premium = E[annual capped recovery] × (1 + 15% loading) — **TECHNICAL** (flat EL loading; real market RoL embeds capital cost).
+
+**Finite vs unlimited delta (seed=42, 100k years, n=1):** All AEP/OEP return-period quantiles are bit-identical between finite and unlimited — the per-year exhaustion rate for Layer 1 is 0.05% (51/100k years), too rare to move any annual quantile at the modelled return periods. At n=1 reinstatements, the programme's aggregate design provides materially more capacity than a single-event portfolio requires in any given year.
 
 <details>
 <summary>v1 reference: Lognormal severity parameterization</summary>
@@ -133,11 +390,11 @@ The `-sigma^2/2` correction offsets the upward pull of the tail so the arithmeti
 
 The headline table above is the model's output. Three things the numbers tell:
 
-**The value of reinsurance.** The gap between the gross and net curves is what the XoL programme buys. On a per-occurrence basis it removes 48M from the 1-in-100 single-event loss (107.7M -> 60.0M) and 73.7M from the 1-in-250 (133.7M -> 60.0M). The expected annual recovery — the technical floor of the programme's premium — is about USD 1.29M/year, concentrated in the Working layer (which triggers in ~3.9% of years) and tapering to the Cat-high layer (~0.2% of years).
+**The value of reinsurance.** The gap between the gross and net curves is what the XoL programme buys. On a per-occurrence basis it removes 53.2M from the 1-in-100 single-event loss (113.2M -> 60.0M) and 86.9M from the 1-in-250 (146.9M -> 60.0M). The expected annual recovery — the technical floor of the programme's premium — is about USD 1.44M/year, concentrated in Layer 1 (which triggers in ~3.8% of years) and tapering to Layer 3 (~0.4% of years). Layer 1 reinstatement exhaustion occurs in only 0.05% of simulated years (51/100k): at n=1 reinstatement, finite and unlimited programme costs are effectively equivalent for this portfolio — a quantified finding.
 
-**Vulnerability drives loss concentration.** Average Annual Loss by construction departs sharply from the share of value: Manufactured homes hold 8.7% of TIV but contribute **32.4%** of AAL (3.7x), while Reinforced Concrete holds 15.2% of TIV and just 3.5% of loss (0.2x). This is the construction-differentiated vulnerability working as intended.
+**Vulnerability drives loss concentration.** Average Annual Loss by construction departs sharply from the share of value: Manufactured homes hold 8.7% of TIV but contribute **34.0%** of AAL (3.9x), while Reinforced Concrete holds 15.2% of TIV and just 2.8% of loss (0.2x). This is the construction-differentiated vulnerability working as intended.
 
-**Geography drives the tail.** Because a single storm sweeps a coherent swath of coast, losses accumulate across the stacked South-East counties (Miami-Dade, Broward, Palm Beach) — the spatial correlation that fattens the tail and justifies modelling at the location level rather than in aggregate.
+**Geography drives the tail.** Calibrated landfall geography spreads storms along the whole coast — most of the time a storm misses the portfolio's concentrated South-East footprint. But when one *does* strike there, a single system sweeps a coherent swath across the stacked South-East counties (Miami-Dade, Broward, Palm Beach) at once. It is this spatial *correlation on the events that hit* — not their frequency — that fattens the tail and justifies modelling at the location level rather than in aggregate.
 
 Generated figures (in `outputs/`):
 
@@ -149,6 +406,7 @@ Generated figures (in `outputs/`):
 | `vulnerability_curves.png` | The four construction-type damage curves |
 | `landfall_distribution.png` | 10,000 sampled landfalls along the coastline |
 | `counties_hit_per_event.png` | Multi-county accumulation per storm |
+| `waterfall.png` | v2→v3 physics attribution — each component's contribution to AAL and PMLs |
 
 ---
 
@@ -156,25 +414,228 @@ Generated figures (in `outputs/`):
 
 Each module is checked against independent references, not just "does it run":
 
-- **Hazard** — eye-of-calm at the storm centre, wind peaks at the radius of max winds, monotonic decay outward; mean storms/year converges to lambda; Cat-3-plus share ~ 0.35; high-wind locations form coherent geographic clusters (10,000-storm diagnostics: 35.8% of landfalls in the SE corridor, 75.5% of storms strike 2+ counties).
+- **Hazard** — eye-of-calm at the storm centre, wind peaks at the radius of max winds, monotonic decay outward; mean storms/year converges to λ=0.6576; Cat-3-plus share ~0.34 (continuous Vmax, vs ~0.35 theoretical); high-wind locations form coherent geographic clusters. Spatial diagnostics over a 10,000-storm catalogue reflect the calibrated v3 geography: 9.2% of simulated landfalls fall in the narrow SE-Atlantic corridor, within 2.4 pp of the 11.6% implied by the historical HURDAT2 sample the KDE was fitted on — the sampler reproduces the data's spatial distribution (the v2 placeholder artificially concentrated storms there; the calibrated KDE spreads them across the whole coast, including the panhandle where the portfolio has no exposure). 48.4% of storms that form still strike 2+ portfolio counties above Cat 1, confirming the spatial correlation that drives tail accumulation.
 - **Vulnerability** — curves monotonic, bounded by their caps, fragility hierarchy preserved at every wind speed, damage zero below threshold, gust conversion sanity-checked.
-- **Financial loss** — gross <= ground-up everywhere; the annual table holds exactly N years (including loss-free years); each year's max single event <= its aggregate; share of loss-free years >= the e^(-lambda) = 49.66% Poisson floor (51.0% simulated).
+- **Financial loss** — gross <= ground-up everywhere; the annual table holds exactly N years (including loss-free years); each year's max single event <= its aggregate; share of loss-free years >= the e^(-λ) = 51.8% Poisson floor (62.9% simulated, λ=0.6576).
 - **Reinsurance** — net <= gross always; recovery bounded in [0, tower capacity]; zero recovery below the first attachment; full recovery at exhaustion.
 
 The **v1 reference model** carries its own three classical anchors (frequency -> lambda, AAL -> lambda*E[X], zero-loss years -> e^(-lambda)), now serving as the cross-check on the aggregate baseline.
+
+### Historical backtesting (Andrew 1992, Ian 2022)
+
+The model's validation evidence assembles in four levels. (1) **Verification** —
+unit checks against closed-form theoretical anchors: frequency convergence to λ,
+Poisson zero-loss floor, financial hierarchy invariants. (2) **Internal validation**
+— the v1 compound-Poisson aggregate and v3 location-level simulation converge on the
+same tail PMLs by entirely different mechanisms; the v2→v3 attribution waterfall
+closes exactly (each component reproduces its baseline bit-for-bit). (3) **External
+confrontation** — the model's hazard physics tested against real storm observations,
+described below. (4) **Out-of-sample frequency/intensity validation** — *Frequency distributional:*
+marginal Poisson dispersion over the satellite era (IoD=1.48, p=0.010) finds
+over-dispersion — the expected signature of AMO-driven clustering that the production
+GLM conditions on; residual GLM dispersion not tested. Rate consistency 2006–2023:
+production λ predicts ~12 landfalls; 6 observed (P(X≤6)=0.050), consistent with the
+documented 2006–2016 FL major-hurricane drought (AMO is a weak FL-specific predictor).
+*Intensity (n=15, 2001–2024):* KS D=0.462, p=0.002 — robust rejection; recent Cat-4+
+fraction (33%) is ~3× the trained expectation (12%), attributed to post-2000
+intensification and/or evolving recon methods. Non-stationarity is a declared
+limitation. See `outputs/out_of_sample_validation.md`.
+
+**Method.** The as-if backtest runs each storm's real HURDAT2 track and observed
+per-fix intensities deterministically — zero RNG draws — through the production wind
+field over the synthetic portfolio. Two footprints are computed:
+
+- **Instantaneous landfall footprint:** wind field evaluated at the single landfall fix
+  (observed Vmax, zero cumulative distance). Compared against NHC best-track R34/R50/R64
+  quadrant radii, which are also instantaneous — apples-to-apples.
+- **Max-over-track envelope:** maximum wind at each grid point over the full interpolated
+  track. Used for Cat-3+ swath extent — the damage-relevant footprint.
+
+Without the split, fast-moving Andrew's strongly elongated envelope conflates
+translation smearing with storm size. Andrew and Ian probe opposite regimes: Andrew
+was compact and fast (145 kt, ~34 km/h translation), Ian was broader and slower (130 kt,
+~21 km/h).
+
+**Storm parameters at landfall (V&W mean, deterministic):**
+
+| | Andrew 1992 | Ian 2022 |
+|---|---|---|
+| Landfall | 25.5°N, 80.2°W | 26.7°N, 82.2°W |
+| Landfall Vmax (HURDAT2) | 145 kt | 130 kt |
+| V&W Rmax | 16.1 nm (29.9 km) | 19.6 nm (36.2 km) |
+| Holland B | 1.384 | 1.334 |
+| Heading | 277° (W) | 61° (NE) |
+| Translation speed | 34.1 km/h | 21.0 km/h |
+
+**Instantaneous wind radii — Ian 2022** (observed: HURDAT2 Cayo Costa landfall fix):
+
+| Threshold | NE | SE | SW | NW |
+|---|---:|---:|---:|---:|
+| R64 modelled (nm) | 81.2 | 86.7 | 79.7 | 81.2 |
+| R64 observed (nm) | 30 | 40 | 30 | 45 |
+| Δ (mod − obs) | +51.2 | +46.7 | +49.7 | +36.2 |
+| R50 modelled (nm) | 118.5 | 120.4 | 109.3 | 105.0 |
+| R50 observed (nm) | 50 | 60 | 70 | 80 |
+| Δ (mod − obs) | +68.5 | +60.4 | +39.3 | +25.0 |
+| R34 modelled (nm) | 161.1 | 166.0 | 155.0 | 149.0 |
+| R34 observed (nm) | 130 | 150 | 100 | 150 |
+| Δ (mod − obs) | +31.1 | +16.0 | +55.0 | −1.0 |
+
+*Grid quantisation ~3 nm (0.05° step); deltas below 5 nm are within quantisation noise.*
+
+**Instantaneous wind radii — Andrew 1992** (no observed: HURDAT2 pre-2004 stores −999):
+
+| Threshold | NE | SE | SW | NW |
+|---|---:|---:|---:|---:|
+| R64 modelled (nm) | 88.6 | 70.7 | 66.9 | 84.7 |
+| R50 modelled (nm) | 121.9 | 97.8 | 92.4 | 120.1 |
+| R34 modelled (nm) | 179.3 | 130.0 | 124.8 | 178.1 |
+
+Andrew is historically documented as an exceptionally compact storm (small radius of
+maximum winds, narrow swath of catastrophic damage), consistent with the same
+over-estimate seen in Ian.
+
+**Max-over-track Cat-3+ (≥96 kt) swath:**
+
+| | Cross-track (nm) |
+|---|---:|
+| Andrew 1992 | 233.8 |
+| Ian 2022 | 109.9 |
+
+Andrew's envelope is strongly elongated along-track, confirming its apparent size is
+dominated by translation rather than storm extent. Cross-track width —
+translation-insensitive — is the cleaner storm-size metric; Andrew's 234 nm
+cross-track swath is itself over-spread relative to the storm's compact documented
+footprint, driven by the same outer-profile issue discussed below.
+
+**Discrepancy analysis.** The model over-estimates hurricane-force (64-kt) wind extent
+by ~2.3× on average, up to ~2.7× in the most over-spread quadrant, across Ian's
+quadrants. The bias is not a uniform scale error: the absolute offset averages ~46 nm
+at R64, ~48 nm at R50, then narrows to ~25 nm at the outer R34 threshold. The excess
+concentrates in the 50–64 kt band and shrinks toward the storm periphery. Two causes:
+
+*Primary — Holland radial decay.* The Holland (1980) profile is anchored to the observed
+surface Vmax at Rmax — the peak is correct. But the gradient-balance shape controls how
+the wind falls off with radius. For Ian, the model places the 64-kt contour at ~4.2×
+Rmax (~82 nm modelled / 19.6 nm Rmax), more than twice the observed ratio of ~1.9×
+(HURDAT2 average R64 ~36 nm / 19.6 nm Rmax). Real surface winds decay faster than the
+gradient-balance profile because boundary-layer processes not captured in the Holland
+formulation additionally attenuate the outer vortex. Crucially, **Rmax is not the source
+of the over-spread:** the V&W Rmax values (16.1 nm for Andrew, 19.6 nm for Ian) match
+these historically compact-to-moderate storms; the issue is the profile shape beyond Rmax.
+
+*Secondary — asymmetry without radial decay.* The forward-motion enhancement (`a·Vt`,
+added uniformly on the leading side) has no radial taper; it inflates the outer radii on
+the moving side without physical justification at large distances from the centre. This
+is a documented v3 limitation. The per-quadrant distribution of the over-spread is not
+cleanly attributable at n=1 storm: Ian's observed R50 peaks in the NW/SW quadrants (80
+and 70 nm respectively), while the model's right-of-track asymmetry (Ian heading 61°,
+right-of-track = SE quadrant) predicts SE/NE largest — the opposite of observation.
+The over-spread *magnitude* is the robust finding; its angular distribution is not.
+
+**Effect on portfolio EP metrics.** The over-spread biases modelled losses high, but
+the effect on the EP tail is buffered. The over-spread annulus carries 34–64 kt winds;
+these fall below the damage-rate inflection for all four construction types, and
+per-location deductibles (2–10% of TIV) absorb much of the marginal damage before it
+reaches the gross layer. The loss-bearing storm core — wind speeds above ~100 kt,
+concentrated near Rmax where the model is correctly anchored — drives the EP tail.
+
+**A natural v4 extension.** A radius-dependent surface-wind shape correction applied
+after the Holland gradient-balance step — matching the empirical observed surface-wind
+decay in the 1–3× Rmax band. The correction targets outer-profile shape specifically:
+not a flat amplitude reduction (which would lower the correctly-anchored Vmax), not an
+Rmax recalibration (Rmax is already well-calibrated), and not a uniform Holland-B
+adjustment (which shifts the full radial profile indiscriminately).
+
+**Scope.** Ian is compared on a wind-only basis. Ian's headline insured loss includes
+substantial storm-surge and inland-flood components this wind-only model does not
+represent; only wind-relevant spatial extent is validated here. The synthetic portfolio
+means portfolio-wide damage ratio is a diagnostic, not a validation target. Open-terrain
+uniform (Exposure C, gust factor 1.3) remains a model assumption throughout.
+
+**Loss-domain check (`validation/zone_damage.py`).** County-level damage ratios from
+the deterministic scenario runner confirm three internal findings. (1) *Concentration
+gradient*: Andrew's Miami-Dade DR (83%) drops steeply to Palm Beach (24%, off-track)
+and Pinellas (0.2%), while Ian's Lee County DR (80%) drops less steeply to peripheral
+Pinellas (8%) — the loss footprint retains meaningful spatial structure in both storms.
+(2) *Footprint shape (concentration vs spread)*: both impact counties saturate near the
+vulnerability ceiling (~80–83% DR), so the 3 ppt peak difference is not informative at
+saturation; the discriminating signal is that Andrew's footprint concentrates sharply
+(consistent with a compact fast-moving Cat-5) while Ian's spreads broadly across the
+portfolio (consistent with a larger, slower storm). This is the loss-domain echo of the
+Level-1a compact-vs-broad radii finding. (3) *Over-spread propagation*: Palm Beach (24%
+DR, off-track for Andrew) provides a clean signal that the Level-1a hazard over-spread
+propagates into the loss domain; Collier (55% DR, on Andrew's exit path) combines
+legitimate exit-path exposure with over-spread amplification. Charlotte County — a real
+Ian-impact county — is absent from the synthetic coastal portfolio and is noted. Full
+results: `outputs/zone_damage_check.md`.
+
+---
+
+### Vulnerability re-architecture: explored and archived
+
+A full damage-state vulnerability framework (lognormal fragilities over five HAZUS
+damage states + a consequence function, the industry-standard approach used by RMS,
+Verisk, FPHLM) was built behind a config switch and validated in three stages:
+
+1. **Parameter derivation.** HAZUS, FPHLM, and the primary fragility literature were
+   confirmed to publish methodology but not calibrated parameters. Fragility medians
+   were therefore derived by triangulation (physical damage thresholds + the v2
+   midpoints + literature dispersion β≈0.16) and cross-checked against the logistic
+   baseline.
+2. **Internal validation passed** — bit-identical logistic fallback, cross-implementation
+   agreement to 1e-12, monotonicity and fragility hierarchy enforced.
+3. **Field validation failed, and the failure was instructive.** Tested against observed
+   manufactured-home damage (Hurricane Elena, 8 parks), the scheme missed by ~4× the
+   acceptance bar. Diagnosis revealed two compounding causes: (a) a conceptual anchoring
+   error — the median of "extensive damage" had been tied to the wind speed of 50% *mean*
+   damage ratio, a different physical quantity; and (b) a terrain-exposure mismatch — the
+   model is open-terrain while the survey sites were suburban. The second cause is
+   structural: no version of this model's vulnerability, logistic or damage-state, can be
+   cleanly field-validated without a site-exposure layer. The damage-state mode is retained
+   as a non-production option; production remains the logistic curve, with its heuristic
+   origin now explicitly documented.
+
+This is recorded as a finding, not a defect: internal consistency cannot detect a flawed
+reference — only field validation can, which is why it was done.
 
 ---
 
 ## Limitations
 
-Stated plainly so results are read in context. Several limitations of the v1 aggregate model are *resolved* in v2 (location-level resolution, modelled deductibles, modelled reinsurance, multi-county correlation). What remains:
+Stated plainly so results are read in context. The v2→v3 work resolved several earlier limitations — calibrated hazard parameters (Phase 1) and a physical wind field with intensity-dependent sizing, forward-motion asymmetry, and inland decay (Phase 2). What remains:
 
-- **Single lambda, no clustering.** Storm frequency has no over-dispersion or seasonal clustering, which understates the aggregate (AEP) tail.
-- **No secondary uncertainty.** Damage ratios are deterministic given wind and construction — no variance around the mean curve.
+- **Wind-field over-spread.** External backtesting (Hurricanes Andrew and Ian, see [Validation](#validation)) shows the modelled footprints over-estimate the radius of damaging (≥64 kt) winds by ~2× versus observed best-track radii — a consequence of the Holland profile's gradient-balance decay applied as a surface wind, plus a forward-motion asymmetry term with no radial taper. The storm core (peak intensity at Rmax) is correctly anchored, so the bias concentrates in the moderate-wind outer annulus: modelled losses are biased upward, but the EP tail is buffered (the over-spread annulus is sub-threshold and largely deductible-absorbed). A radius-dependent surface-wind correction is the v4 direction.
+- **Single λ, no clustering.** The simulation samples storm frequency as i.i.d. Poisson at a single rate (λ = 0.6576, the GLM's current-climate estimate) — no year-to-year over-dispersion or seasonal clustering. The satellite-era landfall record is in fact over-dispersed (index of dispersion 1.48; marginal Poisson rejected, p = 0.01 — see [Validation](#validation)), confirming this assumption understates the aggregate (AEP) tail. A Negative-Binomial frequency is the v4 direction.
+- **Vulnerability is heuristic and not field-validated.** The damage curves are
+  logistic functions whose midpoints were chosen to reproduce HAZUS's qualitative
+  fragility *behaviour* (the Mfg < WF < Mas < RC hierarchy, abrupt manufactured-home
+  failure, graceful RC degradation) — not calibrated to published numerical values.
+  HAZUS does not publish damage-ratio curves in extractable form (its damage model
+  is component-simulation → discrete damage states); neither does the certified
+  FPHLM (its published parameters are explicitly "illustrative"). A damage-state
+  re-architecture was built and tested (see "Vulnerability re-architecture" above)
+  but field validation against observed manufactured-home damage from Hurricane
+  Elena revealed that the model cannot be validated against field data without a
+  site-exposure layer it does not have.
+- **Open-terrain exposure, uniform.** A single gust factor (1.3, Exposure C, open
+  coastal terrain) is applied to every location; there is no per-location terrain
+  roughness. Field damage occurs in mixed terrain (suburban z0≈0.3), so the model's
+  open-terrain prediction is not directly comparable to field surveys without
+  modelling site exposure — the prerequisite for any clean field validation.
+- **Stationary intensity climatology.** The landfall Vmax distribution is fit to the full HURDAT2 record assuming stationarity. An out-of-sample test on 2001–2024 landfalls rejects this (KS p = 0.002; observed Cat-4+ fraction ~33% vs ~12% fitted — see [Validation](#validation)), attributable to post-2000 intensification and/or evolving intensity-estimation methods (modern recon/SFMR) — the two cannot be separated from HURDAT2 Vmax alone. The model does not represent intensity non-stationarity.
+- **Secondary uncertainty: sensitivity capability only, financials synthetic.** A
+  common-shock Gaussian-copula Beta damage draw (Step 3.1) exists behind a config
+  switch (`damage_uncertainty: off|on`, default **off**) but does not ship as
+  production because CV (0.40) and ρ (0.5) are uncalibrated placeholders — see the
+  ρ-sweep table in the Calibration section. A damage-state mode (five-state HAZUS
+  fragility framework) also exists as a non-production option (see "Vulnerability
+  re-architecture" above). Production damage ratios remain deterministic given wind
+  and construction. The portfolio and financial terms remain synthetic (the hazard is
+  calibrated to HURDAT2).
 - **Single peril.** Wind only; no storm surge, inland flood, or demand surge.
-- **Simplified track physics.** Generic +/-45 deg heading, constant Rmax, no forward-speed asymmetry.
-- **Uncalibrated parameters.** All inputs are synthetic and illustrative, not fit to data.
-- **Reinsurance structure.** No reinstatements, no co-participation, no quota share — the net loss is flat at the retention by design.
+- **Track-frozen storm parameters.** Rmax, B, and Δp are held at their landfall values along a straight-line track; Coriolis latitude is fixed at landfall; inland decay continues even where a long track exits the peninsula over water.
+- **Reinsurance structure.** One reinstatement per layer (finite reinstatements modelled, Step 4.4); no co-participation, no quota share; pro-rata-temporis premium is v4.
 
 Each is a natural extension rather than a flaw.
 
@@ -182,11 +643,14 @@ Each is a natural extension rather than a flaw.
 
 ## Future extensions
 
-- A stochastic event catalogue with over-dispersed frequency, calibrated to NOAA HURDAT2.
+- **Site-exposure layer** (per-location terrain roughness) — the prerequisite for clean
+  field validation, identified by the Elena validation work.
+- **Field-validated vulnerability** — fragilities anchored to a validated source, revalidated
+  against historical damage once the exposure layer exists.
 - Generalized Pareto (peaks-over-threshold) tail modelling.
-- Secondary uncertainty (variance around vulnerability curves).
+- **Secondary uncertainty calibration** — calibrate CV as an MDR-dependent function and ρ (common-shock spatial correlation) from per-event loss data; the common-shock Gaussian-copula mechanism is built (Step 3.1) but ships with uncalibrated placeholder parameters pending v4 loss data.
 - Multi-peril (storm surge, inland flood, demand surge).
-- Reinstatements and quota-share in the reinsurance structure.
+- Pro-rata-temporis reinstatement premiums and quota-share in the reinsurance structure (pro-rata-to-amount premium is modelled; time-based weighting is v4).
 - Reproduction in the open-source [Oasis LMF](https://oasislmf.org) framework.
 
 ---
@@ -215,9 +679,12 @@ Dependency order is `loss.py` -> `reinsurance.py` -> `summary.py` (the orchestra
 hurricane-cat-model/
 |-- run_all.py                   # orchestrates the full pipeline
 |-- data/
-|   |-- generate_exposure.py     # step 1 - synthetic FL exposure
-|   `-- exposure.csv
+|   |-- generate_exposure.py     # step 1 - synthetic FL exposure -> OED files
+|   `-- oed/
+|       |-- location.csv         # OED v4 Location file (1,000 risk locations)
+|       `-- account.csv          # OED v4 Account file (single account/policy)
 |-- model/
+|   |-- exposure_io.py           # OED read adapter -> legacy compatibility view
 |   |-- hazard.py                # step 2 - stochastic moving-track storms
 |   |-- hazard_diagnostics.py    #          spatial validation
 |   |-- vulnerability.py         # step 3 - HAZUS-anchored damage curves
@@ -228,9 +695,12 @@ hurricane-cat-model/
 |   |-- aggregate_loss.py        # v1 reference - compound-Poisson aggregate
 |   |-- ep_curve.py              # v1 reference - AEP/OEP curves
 |   `-- sanity_check.py          # v1 reference - Poisson validation
-|-- outputs/                     # generated plots (7 PNGs)
+|-- tests/
+|   `-- fixtures/
+|       `-- exposure_reference.csv  # frozen legacy exposure (bit-identity reference)
+|-- outputs/                     # generated plots (pipeline + calibration figures)
 `-- results/                     # generated CSVs (gitignored, reproducible)
-    `-- summary_metrics.csv      # headline metrics table (versioned)
+    `-- summary_metrics.csv      # headline metrics table (regenerated each run)
 ```
 
 ---

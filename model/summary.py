@@ -1,48 +1,45 @@
 """
 Portfolio metrics summary for the Florida hurricane cat model (Step 6).
 
-Reads Step 4 and Step 5 outputs -- no new simulation.  All PML calculations
-go through ep_utils (single source of truth).
+Reads results/ylt.csv (built by model/outputs.py, Step 4.2).  All PML
+calculations go through ep_utils (single source of truth, convention p_k=k/N).
 
 Four EP views
 -------------
-  AEP gross   Annual aggregate loss (net of per-policy deductible only)
-  AEP net     Annual aggregate loss (net of deductible + XoL reinsurance)
-  OEP gross   Annual max per-occurrence loss (gross)
-  OEP net     Annual max per-occurrence loss (net of XoL)
-
-Net series reconstruction (from events_net.csv)
-------------------------------------------------
-  aggregate_net[yr]  = aggregate_gross[yr]
-                       - sum(recovery_total for all events in yr)
-  max_event_net[yr]  = max(portfolio_net for all events in yr)
-                       [0 for years with no events]
+  AEP gross   AggGross column of YLT (annual aggregate, net of per-policy deductible)
+  AEP net     AggNet column of YLT   (net of deductible + XoL reinsurance)
+  OEP gross   MaxOccGross column     (annual max per-occurrence, gross)
+  OEP net     MaxOccNet column       (annual max per-occurrence, net of XoL)
 
 Outputs
 -------
-  results/summary_metrics.csv   -- tidy CSV with all metrics
+  results/summary_metrics.csv   -- tidy CSV with all metrics (all configured RPs)
   outputs/ep_master.png         -- 2-panel AEP+OEP gross vs net plot
 """
 
+import argparse
 import os
-import sys
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 
-_DIR  = os.path.dirname(os.path.abspath(__file__))
-_ROOT = os.path.dirname(_DIR)
-sys.path.insert(0, _DIR)
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-from ep_utils import oep_pml, ep_curve
+import sys as _sys
+_sys.path.insert(0, _ROOT)
+from model_config import load_model_cfg as _load_model_cfg
+_mcfg = _load_model_cfg()
 
-RESULTS_DIR = os.path.join(_ROOT, "results")
-OUT_DIR     = os.path.join(_ROOT, "outputs")
+from model.ep_utils import oep_pml, ep_curve
+
+RESULTS_DIR    = os.path.join(_ROOT, "results")
+OUT_DIR        = os.path.join(_ROOT, "outputs")
 os.makedirs(RESULTS_DIR, exist_ok=True)
 os.makedirs(OUT_DIR, exist_ok=True)
 
-RETURN_PERIODS = [100, 250]
+RETURN_PERIODS = _mcfg.summary.return_periods   # [5, 10, 25, 50, 100, 250, 500, 1000]
+_PLOT_RPS      = [100, 250]                      # headline pair annotated on the EP plot
 
 # Plot colours consistent with the rest of the model outputs
 _C_GROSS = "#1f77b4"   # blue
@@ -51,47 +48,28 @@ _C_FILL  = "#2ca02c"   # green (recovery band)
 
 
 # ---------------------------------------------------------------------------
-# Data loading and net series reconstruction
+# Data loading (from YLT — the single source for all EP series)
 # ---------------------------------------------------------------------------
 def _load(results_dir):
-    ann_path = os.path.join(results_dir, "annual_losses.csv")
-    evn_path = os.path.join(results_dir, "events_net.csv")
-
-    for p in (ann_path, evn_path):
-        if not os.path.exists(p):
-            raise FileNotFoundError(
-                f"{p} not found -- run model/loss.py then model/reinsurance.py first."
-            )
-
-    annual_df  = pd.read_csv(ann_path)
-    events_net = pd.read_csv(evn_path)
-    N_YEARS    = len(annual_df)
-
-    if len(events_net) > 0:
-        yr_rec = events_net.groupby("year")["recovery_total"].sum()
-        yr_net = events_net.groupby("year")["portfolio_net"].max()
-    else:
-        yr_rec = pd.Series(dtype=float)
-        yr_net = pd.Series(dtype=float)
-
-    annual_df["annual_recovery"] = annual_df["year"].map(yr_rec).fillna(0.0)
-    annual_df["aggregate_net"]   = (
-        annual_df["aggregate_gross"] - annual_df["annual_recovery"]
-    )
-    annual_df["max_event_net"]   = annual_df["year"].map(yr_net).fillna(0.0)
-
-    return annual_df, N_YEARS
+    ylt_path = os.path.join(results_dir, "ylt.csv")
+    if not os.path.exists(ylt_path):
+        raise FileNotFoundError(
+            f"{ylt_path} not found -- run model/outputs.py (Step 4.2) first."
+        )
+    ylt     = pd.read_csv(ylt_path)
+    N_YEARS = len(ylt)
+    return ylt, N_YEARS
 
 
 # ---------------------------------------------------------------------------
 # Compute all metrics
 # ---------------------------------------------------------------------------
-def _compute_metrics(annual_df, N_YEARS):
+def _compute_metrics(ylt, N_YEARS):
     series = {
-        "aep_g": annual_df["aggregate_gross"].to_numpy(),
-        "aep_n": annual_df["aggregate_net"].to_numpy(),
-        "oep_g": annual_df["max_event_gross"].to_numpy(),
-        "oep_n": annual_df["max_event_net"].to_numpy(),
+        "aep_g": ylt["AggGross"].to_numpy(),
+        "aep_n": ylt["AggNet"].to_numpy(),
+        "oep_g": ylt["MaxOccGross"].to_numpy(),
+        "oep_n": ylt["MaxOccNet"].to_numpy(),
     }
 
     aal = {k: float(v.mean()) for k, v in series.items()}
@@ -131,16 +109,18 @@ def _validate(aal, pml):
     assert aal["oep_n"] <= aal["oep_g"] + 1e-4, "AAL OEP net > OEP gross"
     print("[OK] net <= gross for all metrics (AAL, PML 1-in-100, PML 1-in-250)")
 
-    # 3. OEP net reduction: confirm reinsurance is providing material protection.
-    #    Exact % depends on gross PML, which varies with N_YEARS (sampling noise at
-    #    short runs).  Full 100k run: ~44% at 1-in-100, ~55% at 1-in-250.
-    #    Bounds are set wide enough for the 1k-year smoke run (~35-40% at 1-in-100).
+    # 3. OEP net reduction: sanity-check that reinsurance doesn't produce impossible results.
+    #    Lower bound is 0%: after Step 1.5 calibration, the 1-in-100 gross PML (~58M) sits
+    #    below the 60M tower attachment, so 0% reduction is physically correct (no losses
+    #    reach Layer 1).  Tower attachments (60/100/150M) are illustrative v2 values and will
+    #    be re-anchored to OEP return periods in Phase 4 (Paso 4.1).
+    #    Upper bound flags implausible over-recovery (net < 30% of gross is a model error).
     r100 = (pml[(100, "oep_g")] - pml[(100, "oep_n")]) / pml[(100, "oep_g")] * 100
     r250 = (pml[(250, "oep_g")] - pml[(250, "oep_n")]) / pml[(250, "oep_g")] * 100
-    assert 25.0 <= r100 <= 65.0, \
-        f"OEP 1-in-100 reduction {r100:.1f}% outside plausible range 25-65%"
-    assert 35.0 <= r250 <= 70.0, \
-        f"OEP 1-in-250 reduction {r250:.1f}% outside plausible range 35-70%"
+    assert 0.0 <= r100 <= 70.0, \
+        f"OEP 1-in-100 reduction {r100:.1f}% outside plausible range 0-70%"
+    assert 0.0 <= r250 <= 75.0, \
+        f"OEP 1-in-250 reduction {r250:.1f}% outside plausible range 0-75%"
     print(f"[OK] OEP net reduction {r100:.1f}% (1-in-100) and {r250:.1f}% (1-in-250) "
           f"-- consistent with step 5")
 
@@ -169,15 +149,15 @@ def _print_table(aal, pml, N_YEARS):
         f"{aal[c] / 1e6:>{W}.2f}" for c in COLS
     ))
 
-    # PML rows
+    # PML rows (all configured return periods)
     for rp in RETURN_PERIODS:
         print(f"{'PML 1-in-' + str(rp) + ' (USD M)':<22}" + "".join(
             f"{pml[(rp, c)] / 1e6:>{W}.1f}" for c in COLS
         ))
 
     print()
-    print("Net reduction (gross -> net):")
-    for rp in RETURN_PERIODS:
+    print("Net reduction (gross -> net) -- headline pair 1-in-100 / 1-in-250:")
+    for rp in _PLOT_RPS:
         red_aep = (pml[(rp, "aep_g")] - pml[(rp, "aep_n")]) / pml[(rp, "aep_g")] * 100
         red_oep = (pml[(rp, "oep_g")] - pml[(rp, "oep_n")]) / pml[(rp, "oep_g")] * 100
         print(f"  1-in-{rp:<5}"
@@ -204,7 +184,7 @@ def _save_csv(aal, pml, results_dir):
         {"metric": "AAL_M",
          **{cn: round(aal[ck] / 1e6, 3) for ck, cn in zip(COLS, COL_NAMES)}},
     ]
-    for rp in RETURN_PERIODS:
+    for rp in RETURN_PERIODS:              # all configured RPs
         rows.append({
             "metric": f"PML_1in{rp}_M",
             **{cn: round(pml[(rp, ck)] / 1e6, 2) for ck, cn in zip(COLS, COL_NAMES)},
@@ -247,11 +227,11 @@ def _plot_ep_master(series, aal, pml, N_YEARS, out_dir):
         ax.fill_betweenx(ep, net_desc / 1e6, gross_desc / 1e6,
                          alpha=0.10, color=_C_FILL, label="XoL recovery band")
 
-        # Return-period guidelines + PML annotations
+        # Return-period guidelines + PML annotations (headline pair only)
         key_g = "aep_g" if label == "AEP" else "oep_g"
         key_n = "aep_n" if label == "AEP" else "oep_n"
 
-        for rp in RETURN_PERIODS:
+        for rp in _PLOT_RPS:
             p = 1.0 / rp
             ax.axhline(p, color="grey", linestyle=":", lw=0.9, alpha=0.6)
 
@@ -323,19 +303,36 @@ def _plot_ep_master(series, aal, pml, N_YEARS, out_dir):
 # Entry point
 # ---------------------------------------------------------------------------
 def main():
+    parser = argparse.ArgumentParser(description="Summary metrics (Step 6).")
+    parser.add_argument(
+        "--results-dir", default=None,
+        help=(
+            "Directory for summary_metrics.csv output. "
+            "Defaults to results/ next to the project root. "
+            "Pass a different path (e.g. results/waterfall/) to isolate "
+            "waterfall subprocess runs from the production file."
+        ),
+    )
+    args = parser.parse_args()
+    out_results_dir = (
+        os.path.join(_ROOT, args.results_dir) if args.results_dir
+        else RESULTS_DIR
+    )
+    os.makedirs(out_results_dir, exist_ok=True)
+
     print()
     print("=" * 64)
     print("SUMMARY  (Step 6)")
     print("=" * 64)
 
-    annual_df, N_YEARS = _load(RESULTS_DIR)
+    ylt, N_YEARS = _load(RESULTS_DIR)
     print(f"Loaded: {N_YEARS:,} simulated years  |  "
-          f"{int((annual_df['n_events'] > 0).sum()):,} event years")
+          f"{int((ylt['NumEvents'] > 0).sum()):,} event years")
 
-    series, aal, pml = _compute_metrics(annual_df, N_YEARS)
+    series, aal, pml = _compute_metrics(ylt, N_YEARS)
     _validate(aal, pml)
     _print_table(aal, pml, N_YEARS)
-    _save_csv(aal, pml, RESULTS_DIR)
+    _save_csv(aal, pml, out_results_dir)
     _plot_ep_master(series, aal, pml, N_YEARS, OUT_DIR)
 
     print()

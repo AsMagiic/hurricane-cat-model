@@ -1,0 +1,90 @@
+# config/reinsurance.yaml
+# Per-occurrence XoL reinsurance programme for the Florida hurricane cat model.
+#
+# Migrated from config/model_v3.yaml (reinsurance block) in Step 4.4 to support
+# finite reinstatements and programme-cost reporting.
+#
+# EVERY tuneable parameter has a {value, units, source} leaf per project convention.
+#
+# Reinstatement mechanics
+# -----------------------
+#   Annual aggregate limit per layer = occ_limit * (1 + n_reinstatements)
+#   Within-year allocation: events processed in EventId order; each event receives
+#     min(occ_rec, remaining_aggregate).  Annual capped recovery is order-independent:
+#     min(sum_of_occ_rec, agg_limit).  Per-event net follows EventId order (OEP path).
+#   Reinstatement premium: pro-rata to amount only (pro-rata-temporis is v4).
+#     reinst_prem = base_prem * (reinstated_amount / occ_limit) * reinstatement_premium_pct
+#   Base premium: E[annual capped recovery] * (1 + loading_factor)  -- TECHNICAL label.
+#     Real market RoL embeds capital cost far above flat EL loading -- v4.
+#
+# Attachments and limits are illustrative round numbers from v2; to be re-anchored to
+# OEP return periods in v4.  See CLAUDE.md decisions log 2026-06-10.
+
+loading_factor:
+  value:  0.15
+  units:  "dimensionless"
+  source: "Illustrative flat technical loading (EL × 1.15). Real market RoL embeds capital cost far above flat EL loading — v4."
+
+layers:
+  - name:
+      value:  "Layer 1"
+      units:  "label"
+      source: "Design choice (v2); 2026-06-10 decision log."
+    attachment:
+      value:  60000000
+      units:  "USD"
+      source: "Illustrative (v2); 2026-06-10 decision log. To be re-anchored to OEP RPs in v4."
+    occ_limit:
+      value:  40000000
+      units:  "USD"
+      source: "Illustrative (v2)."
+    n_reinstatements:
+      value:  1
+      units:  "count"
+      source: "Illustrative. 1 reinstatement is market-standard for cat per-occurrence XoL."
+    reinstatement_premium_pct:
+      value:  1.0
+      units:  "dimensionless"
+      source: "100% pro-rata to amount (standard cat XoL). Pro-rata-temporis is v4."
+
+  - name:
+      value:  "Layer 2"
+      units:  "label"
+      source: "Design choice (v2); 2026-06-10 decision log."
+    attachment:
+      value:  100000000
+      units:  "USD"
+      source: "Illustrative (v2); 2026-06-10 decision log. To be re-anchored to OEP RPs in v4."
+    occ_limit:
+      value:  50000000
+      units:  "USD"
+      source: "Illustrative (v2)."
+    n_reinstatements:
+      value:  1
+      units:  "count"
+      source: "Illustrative. 1 reinstatement is market-standard for cat per-occurrence XoL."
+    reinstatement_premium_pct:
+      value:  1.0
+      units:  "dimensionless"
+      source: "100% pro-rata to amount (standard cat XoL). Pro-rata-temporis is v4."
+
+  - name:
+      value:  "Layer 3"
+      units:  "label"
+      source: "Design choice (v2); 2026-06-10 decision log."
+    attachment:
+      value:  150000000
+      units:  "USD"
+      source: "Illustrative (v2); 2026-06-10 decision log. To be re-anchored to OEP RPs in v4."
+    occ_limit:
+      value:  50000000
+      units:  "USD"
+      source: "Illustrative (v2)."
+    n_reinstatements:
+      value:  1
+      units:  "count"
+      source: "Illustrative. 1 reinstatement is market-standard for cat per-occurrence XoL."
+    reinstatement_premium_pct:
+      value:  1.0
+      units:  "dimensionless"
+      source: "100% pro-rata to amount (standard cat XoL). Pro-rata-temporis is v4."

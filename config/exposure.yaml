@@ -1,0 +1,179 @@
+# Synthetic FL portfolio exposure parameters (v2)
+# Every scalar entry carries: value, units, source.
+
+n_locations:
+  value: 1000
+  units: "count"
+  source: "design choice (v2)"
+
+seed:
+  value: 42
+  units: "dimensionless"
+  source: "design choice (v2)"
+
+target_tiv:
+  value: 500000000
+  units: "USD"
+  source: "design choice (v2)"
+
+tiv_cv:
+  value: 1.0
+  units: "dimensionless"
+  source: "design choice (v2)"
+
+counties:
+  value:
+    - "Miami-Dade"
+    - "Broward"
+    - "Palm Beach"
+    - "Lee"
+    - "Pinellas"
+    - "Hillsborough"
+    - "Collier"
+    - "Monroe"
+  units: "county names"
+  source: "illustrative (v2)"
+
+county_weights:
+  value: [0.22, 0.16, 0.14, 0.10, 0.10, 0.10, 0.09, 0.09]
+  units: "probability"
+  source: "illustrative (v2)"
+
+# [lat_deg, lon_deg] centroid for each county — used as origin of the Normal jitter.
+county_centroids:
+  value:
+    Miami-Dade:    [25.61, -80.40]
+    Broward:       [26.15, -80.30]
+    Palm Beach:    [26.65, -80.20]
+    Lee:           [26.55, -81.90]
+    Pinellas:      [27.90, -82.70]
+    Hillsborough:  [27.95, -82.30]
+    Collier:       [26.10, -81.60]
+    Monroe:        [24.80, -81.00]
+  units: "[lat_deg, lon_deg]"
+  source: "illustrative (v2)"
+
+occupancy:
+  choices:
+    value: ["Single Family", "Condo", "Mobile Home"]
+    units: "category labels"
+    source: "design choice (v2)"
+  weights:
+    value: [0.68, 0.22, 0.10]
+    units: "probability"
+    source: "illustrative (v2)"
+
+construction:
+  # Mobile Home -> always Manufactured (rule stays in code).
+  # These types and weights apply to all other occupancies.
+  non_manufactured_types:
+    value: ["Wood Frame", "Masonry", "Reinforced Concrete"]
+    units: "category labels"
+    source: "design choice (v2)"
+  weights:
+    value: [0.25, 0.55, 0.20]
+    units: "probability"
+    source: "illustrative (v2)"
+
+deductibles:
+  choices:
+    value: [0.02, 0.05, 0.10]
+    units: "fraction_of_tiv"
+    source: "illustrative (v2)"
+  weights:
+    value: [0.30, 0.50, 0.20]
+    units: "probability"
+    source: "illustrative (v2)"
+
+# ---------------------------------------------------------------------------
+# OED (Open Exposure Data v4) mapping tables
+# Source: OasisLMF/ODS_OpenExposureData, OED v4 specification
+# ---------------------------------------------------------------------------
+oed_mapping:
+  # ConstructionCode: integer codes for OED ConstructionCode field
+  # Source: OED v4 Table ConstructionCode
+  construction_to_oed:
+    value:
+      Wood Frame: 5050
+      Masonry: 5100
+      Reinforced Concrete: 5150
+      Manufactured: 5350
+    units: "OED ConstructionCode (int)"
+    source: "OED v4, OasisLMF/ODS_OpenExposureData"
+
+  # OccupancyCode: integer codes for OED OccupancyCode field
+  # Note: Single Family and Mobile Home both map to 1051 — NOT invertible from
+  # OccupancyCode alone; lossless round-trip requires OrgOccupancyCode provenance.
+  # Source: OED v4 Table OccupancyCode
+  occupancy_to_oed:
+    value:
+      Single Family: 1051
+      Condo: 1055
+      Mobile Home: 1051
+    units: "OED OccupancyCode (int)"
+    source: "OED v4, OasisLMF/ODS_OpenExposureData"
+
+  # Peril: LocPerilsCovered / PolPerilsCovered
+  # WTC = Strong wind from Tropical Cyclone
+  # Source: OED v4 PerilCode table
+  peril:
+    value: "WTC"
+    units: "OED PerilCode"
+    source: "OED v4, OasisLMF/ODS_OpenExposureData"
+
+  # Financial codes (DedCode=0 Regular; DedType=0 Amount; LimitType=0 Amount)
+  # Amount type required for bit-identity: deductible is pre-rounded to integer
+  # dollars in generate_exposure.py; storing as Amount avoids float reconstruction.
+  # Source: OED v4 DedCode/DedType/LimitType tables
+  ded_code:
+    value: 0
+    units: "OED DedCode (0=Regular)"
+    source: "OED v4"
+  ded_type:
+    value: 0
+    units: "OED DedType (0=Amount)"
+    source: "OED v4"
+  limit_type:
+    value: 0
+    units: "OED LimitType (0=Amount)"
+    source: "OED v4"
+
+  # Currency
+  # Source: OED v4 currency fields
+  currency:
+    value: "USD"
+    units: "ISO 4217"
+    source: "OED v4"
+
+  # Geography
+  # Source: OED v4 CountryCode / AreaCode fields
+  country_code:
+    value: "US"
+    units: "ISO 3166-1 alpha-2"
+    source: "OED v4"
+  area_code:
+    value: "FL"
+    units: "OED AreaCode (US state abbreviation)"
+    source: "OED v4"
+  area_name:
+    value: "Florida"
+    units: "OED AreaName"
+    source: "OED v4"
+
+  # County geography scheme
+  # Source: OED v4 GeogScheme1 / GeogName1 fields
+  county_geog_scheme:
+    value: "CNTY"
+    units: "OED GeogScheme1 (county identifier)"
+    source: "OED v4"
+
+  # Provenance scheme codes for lossless org taxonomy round-trip
+  # OrgConstructionScheme / OrgOccupancyScheme carry the model's internal labels
+  org_construction_scheme:
+    value: "MODEL"
+    units: "provenance label"
+    source: "design choice (v3)"
+  org_occupancy_scheme:
+    value: "MODEL"
+    units: "provenance label"
+    source: "design choice (v3)"

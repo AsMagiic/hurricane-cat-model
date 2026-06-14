@@ -1,0 +1,564 @@
+# Florida hurricane cat model — v2 calibration parameters
+# Every scalar entry carries: value, units, source.
+# Derived values (TOP_OF_TOWER, TOTAL_CAPACITY, theoretical_cat3plus, etc.)
+# are computed in code — never hardcode them here.
+
+simulation:
+  n_years:
+    value: 100000
+    units: "simulated_years"
+    source: "design choice (v2)"
+  seed:
+    value: 42
+    units: "dimensionless"
+    source: "design choice (v2)"
+
+frequency:
+  lambda_rate:
+    value: 0.6576
+    units: "events/year"
+    source: "Poisson GLM (log link), single covariate: standardized AMO (TNA dropped due to collinearity r=0.892, dAIC=1.99 favoring reduced model), 1966-2022 satellite era; current-climate value = exp(b0 + b_amo*AMO_curr) evaluated at 2013-2022 mean climate. HURDAT2 + NOAA PSL AMO unsmoothed. See calibration/frequency_glm.py."
+  # Satellite-era Poisson MLE -- documentary benchmark, not consumed by the model.
+  lambda_mle_benchmark:
+    value: 0.4746
+    units: "events/year"
+    source: "Poisson MLE, FL HU landfalls 1966-2024 (satellite era), HURDAT2. Documentary benchmark only -- NOT consumed by model/hazard.py. Production rate is frequency.lambda_rate (GLM current-climate). See calibration/frequency_glm.py."
+  # Saffir-Simpson sustained wind ranges (mph, 1-minute average) for Cat 1-5.
+  category_ranges:
+    value: [[74, 95], [96, 110], [111, 129], [130, 156], [157, 185]]
+    units: "mph_sustained"
+    source: "Saffir-Simpson"
+  # Superseded by intensity.vmax_kt truncated-lognormal (Step 1.4); retained for reference only.
+  category_weights:
+    value: [0.40, 0.25, 0.18, 0.13, 0.04]
+    units: "probability"
+    source: "superseded by intensity.vmax_kt truncated-lognormal (Step 1.4); retained for reference only, not used in sampling"
+
+intensity:
+  distribution:
+    value: "trunclognorm"
+    units: "scipy_dist_name"
+    source: "MLE Truncated Lognormal fit to FL HU landfall Vmax, HURDAT2 full record 1851-2024 (n=112); selected over Shifted Weibull on upper-tail QQ MAD (1.49 kt vs 1.81 kt), dAIC=-2.30. Full record used for intensity (tail events scarce; pre-satellite Vmax measurement bias non-directional) vs satellite era for frequency (count detection bias). See calibration/intensity.py."
+  loc:
+    value: 64.0
+    units: "kt"
+    source: "HU definitional threshold (Saffir-Simpson 64 kt)"
+  mu_log:
+    value: 4.4362
+    units: "log_kt"
+    source: "MLE Truncated Lognormal fit to FL HU landfall Vmax, HURDAT2 full record 1851-2024 (n=112); selected over Shifted Weibull on upper-tail QQ MAD (1.49 kt vs 1.81 kt), dAIC=-2.30. Full record used for intensity (tail events scarce; pre-satellite Vmax measurement bias non-directional) vs satellite era for frequency (count detection bias). See calibration/intensity.py."
+  sigma_log:
+    value: 0.2518
+    units: "dimensionless"
+    source: "MLE Truncated Lognormal fit to FL HU landfall Vmax, HURDAT2 full record 1851-2024 (n=112); selected over Shifted Weibull on upper-tail QQ MAD (1.49 kt vs 1.81 kt), dAIC=-2.30. Full record used for intensity (tail events scarce; pre-satellite Vmax measurement bias non-directional) vs satellite era for frequency (count detection bias). See calibration/intensity.py."
+  cap_kt:
+    value: 165.0
+    units: "kt"
+    source: "Step 3.0a. Empirical Atlantic MPI at SST ~30 C per DeMaria & Kaplan (1994), 'Sea surface temperature and the maximum intensity of Atlantic tropical cyclones', J. Climate 7, 1324-1334: V = A + B*exp(C*(T-30)), A=28.2 m/s, B=55.8 m/s, C=0.1813 /C -> ~163 kt at 30 C, rounded to 165 kt. Cross-check: HURDAT2 Atlantic landfall record is 160 kt (Labor Day 1935, Dorian 2019); cap sits 5 kt above the observed record as a physical ceiling, not a data ceiling. Active when hazard.physics.intensity_cap='on'."
+
+wind_pressure:
+  p_env_mb:
+    value: 1013.0
+    units: "mb"
+    source: "standard atmosphere ambient pressure; static input — edit to match regional climatology if needed"
+  a:
+    value: 0.0158
+    units: "mb / mph^b"
+    source: "Log-linear OLS (np.polyfit, multiplicative-error model) on CONUS satellite-era HU landfalls (HURDAT2 1966-2024, n=85 records with non-null pmin_mb). WPR is basin physics, not portfolio-specific — restricting to Florida would be a specification error. Satellite-era cut (>=1966) breaks Dvorak circularity: pre-satellite Vmax was partly derived from pressure via the Dvorak technique, making a Vmax-pressure regression on that data circular. Unit chain: vmax_kt * 1.15078 = vmax_mph; delta_p = p_env_mb - pmin_mb (mb). See calibration/wind_pressure.py."
+  b:
+    value: 1.7222
+    units: "dimensionless"
+    source: "Log-linear OLS (np.polyfit, multiplicative-error model) on CONUS satellite-era HU landfalls (HURDAT2 1966-2024, n=85 records with non-null pmin_mb). WPR is basin physics, not portfolio-specific — restricting to Florida would be a specification error. Satellite-era cut (>=1966) breaks Dvorak circularity: pre-satellite Vmax was partly derived from pressure via the Dvorak technique, making a Vmax-pressure regression on that data circular. Unit chain: vmax_kt * 1.15078 = vmax_mph; delta_p = p_env_mb - pmin_mb (mb). See calibration/wind_pressure.py."
+  sigma_log:
+    value: 0.2458
+    units: "dimensionless"
+    source: "Log-linear OLS (np.polyfit, multiplicative-error model) on CONUS satellite-era HU landfalls (HURDAT2 1966-2024, n=85 records with non-null pmin_mb). WPR is basin physics, not portfolio-specific — restricting to Florida would be a specification error. Satellite-era cut (>=1966) breaks Dvorak circularity: pre-satellite Vmax was partly derived from pressure via the Dvorak technique, making a Vmax-pressure regression on that data circular. Unit chain: vmax_kt * 1.15078 = vmax_mph; delta_p = p_env_mb - pmin_mb (mb). See calibration/wind_pressure.py."
+  sample_n:
+    value: 85
+    units: "count"
+    source: "Log-linear OLS (np.polyfit, multiplicative-error model) on CONUS satellite-era HU landfalls (HURDAT2 1966-2024, n=85 records with non-null pmin_mb). WPR is basin physics, not portfolio-specific — restricting to Florida would be a specification error. Satellite-era cut (>=1966) breaks Dvorak circularity: pre-satellite Vmax was partly derived from pressure via the Dvorak technique, making a Vmax-pressure regression on that data circular. Unit chain: vmax_kt * 1.15078 = vmax_mph; delta_p = p_env_mb - pmin_mb (mb). See calibration/wind_pressure.py."
+
+hazard:
+  # FL coastline polyline — [lat_deg, lon_deg] for each vertex.
+  # Ordered: Atlantic N->S, Keys, Gulf S->N.  12 points = 11 segments.
+  coast_polyline:
+    value:
+      - [28.5, -80.60]   #  0  Atlantic N
+      - [27.5, -80.30]   #  1
+      - [26.7, -80.03]   #  2
+      - [26.1, -80.10]   #  3  Miami metro (SE high-risk)
+      - [25.6, -80.12]   #  4
+      - [25.1, -80.45]   #  5  Keys start
+      - [24.7, -81.10]   #  6  Keys tip
+      - [25.9, -81.40]   #  7  Gulf SW -- Collier/Lee (SW high-risk)
+      - [26.5, -82.00]   #  8
+      - [27.3, -82.55]   #  9
+      - [27.8, -82.75]   # 10
+      - [28.2, -82.75]   # 11  Gulf N
+    units: "[lat_deg, lon_deg]"
+    source: "superseded by hazard.landfall_geography KDE (Step 1.5); retained only for the __main__ reference plot in hazard.py"
+  # 11 weights for 11 segments.  Coupled to coast_polyline: must have len-1 entries.
+  # Higher weights on SE (segments 2-3) and SW (segments 7-8) to reflect
+  # observed FL landfall climatology.
+  coast_segment_weights:
+    value: [1.0, 1.5, 2.5, 3.0, 1.5, 1.0, 1.0, 2.5, 2.0, 1.5, 1.0]
+    units: "relative_weight"
+    source: "superseded by hazard.landfall_geography KDE (Step 1.5); no longer used in sampling"
+  step_km:
+    value: 30.0
+    units: "km"
+    source: "design choice (v2)"
+  efold_km:
+    value: 120.0
+    units: "km"
+    source: "illustrative (v2)"
+  # Exponent for the outer-vortex power-law decay: V = Vmax*(Rmax/d)^exponent for d>Rmax.
+  outer_decay_exponent:
+    value: 0.6
+    units: "dimensionless"
+    source: "illustrative (v2)"
+  # Radius of maximum winds uniform sampling bounds (constant along track, no eyewall contraction).
+  rmax_km_min:
+    value: 30.0
+    units: "km"
+    source: "illustrative (v2)"
+  rmax_km_max:
+    value: 55.0
+    units: "km"
+    source: "illustrative (v2)"
+  rmax_floor_km:
+    value: 8.0
+    units: "km"
+    source: "Step 3.0c. Physical lower limit on V&W Rmax sampling from the Vickery & Wadhera (2008) ERDC TR-08-06 observed Atlantic TC record: no observed tropical cyclone has Rmax < ~8 km. V&W eq. (13) extrapolates to sub-physical Rmax at high Δp (amplified by wpr_residual at cap-level storms; 153/100k storms under wpr=on, 4/100k under wpr=off). Floor applied as simple censoring (clip) after _vw_rmax_sample and before _vw_b_sample, so Holland B couples to the physical Rmax. Active when hazard.physics.rmax_floor='on'."
+
+  landfall_geography:
+    coastline_path:
+      value: "data/processed/fl_coastline_simplified.csv"
+      units: "file_path"
+      source: "TIGER/Line 2023 FL state boundary; forward arc GA-FL Atlantic corner -> Keys (embedded in mainland ring) -> AL-FL panhandle corner; 5 km Douglas-Peucker simplification (EPSG:3086). See calibration/landfall_geography.py."
+    simplify_tolerance_m:
+      value: 5000
+      units: "m"
+      source: "1/10 of minimum HU wind radius (50 km); eliminates TIGER sub-km digitization noise while preserving all macroscale geographic features relevant to landfall geography."
+    n_vertices_raw:
+      value: 8232
+      units: "count"
+      source: "TIGER/Line 2023 FL mainland exterior ring coastal arc (GA-FL to AL-FL, includes Keys); before simplification"
+    n_vertices_simplified:
+      value: 61
+      units: "count"
+      source: "After Douglas-Peucker 5 km simplification in EPSG:3086"
+    total_arc_length_km:
+      value: 2247.75
+      units: "km"
+      source: "EPSG:3086 arc-length of simplified coastline"
+    endpoint_start:
+      value: [-81.469687, 30.712350]
+      units: "[lon_deg, lat_deg]"
+      source: "GA-FL Atlantic border, NE Florida; s=0 reference"
+    endpoint_end:
+      value: [-87.598998, 30.996298]
+      units: "[lon_deg, lat_deg]"
+      source: "AL-FL panhandle border; s=L reference"
+    keys_handling:
+      value: "Keys embedded in mainland exterior ring; no separate polygon insertion. Forward arc from GA corner through Atlantic-S, Keys (min lat 24.3963°N), Gulf-N to AL corner — 8232 raw vertices."
+      units: "text"
+      source: "calibration/landfall_geography.py"
+    kde_bandwidth_silverman_km:
+      value: 240.869
+      units: "km"
+      source: "Silverman rule: h = 1.06 * std(s) * n^(-1/5), n=112 HU landfalls"
+    kde_silverman_factor:
+      value: 0.412234
+      units: "dimensionless"
+      source: "scipy gaussian_kde bw_method factor; actual_bw_km = factor * std(s_km)"
+    n_HU:
+      value: 112
+      units: "count"
+      source: "HURDAT2 fl_landfalls.csv, status==HU, full record 1851-2024"
+    s_samples_km:
+      value: [1950.775, 917.909, 1456.901, 1799.327, 1970.280, 1419.541, 917.909, 1071.658, 1673.246, 1187.391, 454.451, 443.517, 1605.579, 1813.411, 1266.117, 1581.223, 875.323, 2124.537, 1928.730, 1508.183, 713.711, 311.181, 1549.433, 2067.403, 1642.766, 1729.999, 1881.873, 1484.123, 2040.440, 587.035, 1607.245, 632.714, 1230.237, 1954.257, 2029.369, 1599.545, 1808.257, 1807.097, 1875.744, 651.198, 769.789, 767.287, 766.297, 917.909, 2104.323, 273.191, 1877.435, 2115.388, 2059.458, 917.909, 1447.328, 1898.708, 1175.484, 280.092, 616.112, 426.948, 486.749, 689.296, 441.433, 469.986, 726.002, 573.353, 2029.115, 1975.766, 622.927, 917.909, 1530.804, 649.596, 1372.356, 550.202, 1097.493, 1112.275, 783.993, 497.686, 1566.598, 623.800, 2000.704, 1292.028, 2053.203, 735.007, 592.779, 104.675, 1136.531, 682.627, 917.909, 917.909, 1526.854, 2005.252, 462.341, 1920.846, 874.085, 620.109, 2078.841, 2088.714, 1956.411, 837.011, 1068.835, 1263.126, 431.299, 429.762, 2075.230, 917.909, 1175.944, 1771.554, 805.032, 1928.730, 1290.601, 382.669, 1691.707, 1673.072, 1705.436, 1372.961]
+      units: "km"
+      source: "Arc-length projection of 112 HU landfalls onto simplified FL coastline, EPSG:3086; s=0 at GA-FL Atlantic corner (NE Florida)"
+
+  track_stats:
+    heading_mean_deg:
+      value: 3.23
+      units: "degrees_clockwise_from_N"
+      source: "Circular mean of FL HU landfall headings via mean resultant vector: atan2(mean_sin, mean_cos) mod 360. See calibration/track_stats.py."
+    heading_arithmetic_mean_deg:
+      value: 147.5
+      units: "degrees_clockwise_from_N"
+      source: "Naive arithmetic mean of headings; differs from circular mean when distribution spans the 0/360 wrap. Stored for transparency only."
+    heading_circ_std_deg:
+      value: 53.45
+      units: "degrees"
+      source: "Circular std: sqrt(-2*ln(R)) in radians converted to degrees; R = heading_resultant_R."
+    heading_resultant_R:
+      value: 0.6472
+      units: "dimensionless"
+      source: "Mean resultant length sqrt(mean_cos^2 + mean_sin^2); 0 = uniform, 1 = all identical."
+    speed_dist:
+      value: "gamma"
+      units: "scipy_dist_name"
+      source: "MLE fit to FL HU landfall translation speeds; selected by AIC over lognormal and gamma (both floc=0). See calibration/track_stats.py."
+    speed_params:
+      value: [4.957188, 0.000000, 4.761344]
+      units: "scipy_gamma_params_(shape_s,_loc,_scale)"
+      source: "MLE params; reconstruct with scipy.stats.gamma(*speed_params). Units of scale are km/h."
+    speed_mean_kmh:
+      value: 23.603
+      units: "km/h"
+      source: "Sample mean of bracketing-pair translation speeds at FL HU landfall."
+    speed_std_kmh:
+      value: 10.558
+      units: "km/h"
+      source: "Sample std (ddof=1) of bracketing-pair translation speeds."
+    n_HU:
+      value: 112
+      units: "count"
+      source: "HURDAT2 fl_landfalls.csv, status==HU, full record 1851-2024"
+    n_used:
+      value: 112
+      units: "count"
+      source: "Storms with a valid bracketing fix pair; n_HU - n_excluded."
+    n_excluded:
+      value: 0
+      units: "count"
+      source: "Storms excluded: no bracketing pair or degenerate dt=0. See calibration/track_stats.py output."
+
+    by_regime:
+      # Cape Sable (25.12N 81.10W) projected onto simplified FL coastline.
+      # s < s_cut -> atlantic (includes Keys); s >= s_cut -> gulf.
+      # Keys are atlantic-side: the polyline dips south through the Keys
+      # before returning north to Cape Sable, so all Keys arc-lengths < s_cut.
+      s_cut_km:
+        value: 1057.43
+        units: "km"
+        source: "Cape Sable (25.12N 81.10W) projected onto simplified FL coastline; scaled to EPSG:3086 arc-length for direct comparison with s_samples_km. See calibration/track_stats.py."
+      s_cut_frac:
+        value: 0.4704
+        units: "dimensionless"
+        source: "s_cut_km / total_arc_length_km"
+      atlantic:
+        n:
+          value: 47
+          units: "count"
+          source: "HU landfalls s < s_cut_km (Atlantic coast + Keys). Keys classified atlantic: arc-length dips south through Keys before Cape Sable."
+        heading_mean_deg:
+          value: 314.46
+          units: "degrees_clockwise_from_N"
+          source: "Circular mean, atlantic regime (expected: NW sector ~300-340 deg). See calibration/track_stats.py."
+        heading_circ_std_deg:
+          value: 45.17
+          units: "degrees"
+          source: "Circular std, atlantic regime."
+        heading_resultant_R:
+          value: 0.7328
+          units: "dimensionless"
+          source: "Mean resultant length, atlantic regime."
+        speed_dist:
+          value: "gamma"
+          units: "scipy_dist_name"
+          source: "MLE fit, atlantic regime. See calibration/track_stats.py."
+        speed_params:
+          value: [6.393271, 0.000000, 3.157488]
+          units: "scipy_gamma_params_(shape_s,_loc,_scale)"
+          source: "MLE params; scipy.stats.gamma(*speed_params). Scale in km/h."
+        speed_mean_kmh:
+          value: 20.187
+          units: "km/h"
+          source: "Sample mean, atlantic regime."
+        speed_std_kmh:
+          value: 7.666
+          units: "km/h"
+          source: "Sample std (ddof=1), atlantic regime."
+      gulf:
+        n:
+          value: 65
+          units: "count"
+          source: "HU landfalls s >= s_cut_km (Gulf coast + panhandle, SW FL northward)."
+        heading_mean_deg:
+          value: 30.72
+          units: "degrees_clockwise_from_N"
+          source: "Circular mean, gulf regime (expected: NE sector ~20-60 deg). See calibration/track_stats.py."
+        heading_circ_std_deg:
+          value: 31.06
+          units: "degrees"
+          source: "Circular std, gulf regime."
+        heading_resultant_R:
+          value: 0.8634
+          units: "dimensionless"
+          source: "Mean resultant length, gulf regime."
+        speed_dist:
+          value: "gamma"
+          units: "scipy_dist_name"
+          source: "MLE fit, gulf regime. See calibration/track_stats.py."
+        speed_params:
+          value: [4.786641, 0.000000, 5.447044]
+          units: "scipy_gamma_params_(shape_s,_loc,_scale)"
+          source: "MLE params; scipy.stats.gamma(*speed_params). Scale in km/h."
+        speed_mean_kmh:
+          value: 26.073
+          units: "km/h"
+          source: "Sample mean, gulf regime."
+        speed_std_kmh:
+          value: 11.675
+          units: "km/h"
+          source: "Sample std (ddof=1), gulf regime."
+
+  physics:
+    rmax_method:
+      value: "vickery_wadhera"
+      units: "switch"
+      source: "Rmax sampling method: 'uniform' — v2 legacy (rng.uniform(30,55) km, bit-identical baseline); 'vickery_wadhera' — V&W (2008) ERDC TR-08-06 eq. (13). See model/hazard.py."
+    b_method:
+      value: "vickery_wadhera"
+      units: "switch"
+      source: "Holland B sampling method: 'constant' — placeholder 0.0; 'vickery_wadhera' — V&W (2008) ERDC TR-08-06 eq. (14). See model/hazard.py."
+    wind_profile:
+      value: "holland"
+      units: "switch"
+      source: "Radial wind profile: 'rankine' — modified Rankine vortex (v2 placeholder); 'holland' — Holland (1980) full gradient-balance profile Vg(r)=sqrt((B/rho)*x*dp*exp(-x)+(rf/2)^2)-rf/2, x=(Rmax/r)^B, anchored to Vmax at r=Rmax. Requires b_method != 'constant' (b=0 gives flat Vmax field). See model/wind_field.py."
+    air_density_kg_m3:
+      value: 1.15
+      units: "kg/m^3"
+      source: "Standard tropical marine boundary layer density (NHC/SLOSH, 1.15 kg/m³ at sea level 25°C). Used in Holland (1980) gradient-wind pressure term: (B/rho)*x*dp_pa*exp(-x). See model/wind_field.py."
+    translation_asymmetry:
+      value: "on"
+      units: "switch"
+      source: "Paso 2.2. Schwerdt-Ho-Watkins (1979) / HAZUS-MH Hurricane Technical Manual (FEMA 2012) forward-motion asymmetry: V_total = max(0, V_sym + a*Vt_mph*sin(beta_loc - beta_heading)). 'on'/'off'. Default 'off' for backward compatibility; with 'off', output is bit-identical to the symmetric Holland baseline. See model/wind_field.py."
+    asymmetry_fraction:
+      value: 0.5
+      units: "dimensionless"
+      source: "Paso 2.2. Surface-level asymmetry fraction a in V_total = V_sym + a*Vt_mph*sin(beta_loc - beta_heading). a=0.5 is the boundary-layer-reduced value (Powell 1980 observations, consistent with HAZUS-MH Hurricane Technical Manual FEMA 2012); full gradient-wind asymmetry is a=1.0 (Schwerdt-Ho-Watkins 1979 SPH original). See model/wind_field.py."
+    decay_method:
+      value: "kaplan_demaria"
+      units: "switch"
+      source: "Paso 2.3. Post-landfall intensity decay. 'efold': v2 e-folding decay (efold_km=120 km, vt-independent, bit-identical v2 baseline); 'kaplan_demaria': Kaplan & DeMaria (1995) J. Appl. Meteor. 34 2499-2512, coefficients per DeMaria et al. (2006) JAMC 45(3): V(t)=Vb+(V0-Vb)*exp(-alpha*t), t=cum_dist/vt_kmh. Default 'kaplan_demaria'. See model/hazard.py."
+    intensity_cap:
+      value: "on"
+      units: "switch"
+      source: "Step 3.0a. Upper truncation of landfall intensity distribution at intensity.cap_kt. 'off': unbounded above, bit-identical to pre-3.0a v3 baseline (_INT_P_UB=1.0, same float expression). 'on': renormalized truncation; _INT_P_UB=Phi((ln(cap_kt)-mu_log)/sigma_log)~0.9961, so p_samp in [_INT_P_LB, _INT_P_UB]. Env-var override: CATMODEL_INTENSITY_CAP. See model/hazard.py."
+    wpr_residual:
+      value: "off"
+      units: "switch"
+      source: "Step 3.0b. Stochastic WPR scatter: Δp = a·Vmax^b · exp(ε), ε ~ N(0, sigma_log²), sigma_log from wind_pressure.sigma_log (0.2458). 'off': deterministic Δp = a·Vmax^b, bit-identical to v3+3.0a baseline (Rmax/B streams unaffected; spawn architecture unchanged). 'on': adds lognormal multiplicative noise on Δp, propagating into Rmax and B via the V&W causal chain. Jensen bias: E[exp(ε)] = exp(sigma_log²/2) ≈ 1.031, so mean Δp shifts +3% upward (mean Rmax slightly smaller, tail fattened). Does NOT touch the Holland amplitude (anchored to Vmax, Phase-2 decision). Ships off by default. Env-var override: CATMODEL_WPR_RESIDUAL. See model/hazard.py."
+    rmax_floor:
+      value: "on"
+      units: "switch"
+      source: "Step 3.0c. Physical Rmax floor for V&W Rmax sampling. 'off': no floor applied, bit-identical to post-3.0b baseline (4 sub-physical storms under wpr=off, 153 under wpr=on). 'on': Rmax = max(Rmax_vw, rmax_floor_km) applied after _vw_rmax_sample and before _vw_b_sample — B couples to physical Rmax, not sub-physical extrapolation. Censoring (clip), not renormalization: sub-physical storms are near-zero-loss compact near-misses (loss trivially small), so an atom at 8 km introduces no material metric distortion. No new RNG draws consumed; floor=off is bit-identical to post-3.0b baseline. Default 'on'; prerequisite for wpr_residual='on' production readiness. Env-var override: CATMODEL_RMAX_FLOOR. See model/hazard.py."
+    kd_alpha:
+      value: 0.095
+      units: "h^-1"
+      source: "Paso 2.3. Kaplan & DeMaria (1995) / DeMaria et al. (2006): exponential decay rate in V(t)=Vb+(V0-Vb)*exp(-alpha*t). See model/hazard.py."
+    kd_vb_kt:
+      value: 26.7
+      units: "kt"
+      source: "Paso 2.3. Kaplan & DeMaria (1995): residual background wind. Converted to mph at module load (x1.15078 mph/kt). See model/hazard.py."
+    vt_min_kmh:
+      value: 2.0
+      units: "km/h"
+      source: "Paso 2.3. Translation-speed floor for K-D time computation t=cum_dist/vt. Guards gamma-tail near-zero draws against divide-by-zero; 2 km/h (~1.1 kt) is physically near-stationary — decay toward Vb at this speed is correct behavior. Not applied on the efold path. See model/hazard.py."
+
+vickery_wadhera:
+  # Rmax regression (eq. 13 in ERDC TR-08-06): ln(Rmax_km) = intercept + dp2_coeff*Δp² + lat_coeff*ψ + ε
+  # Δp in mb, ψ (latitude) in degrees N, Rmax output in km.
+  rmax:
+    intercept:
+      value: 3.015
+      units: "dimensionless"
+      source: "Vickery & Wadhera (2008), ERDC TR-08-06, eq. (13). Regression on Atlantic basin landfalls. See model/hazard.py."
+    dp2_coeff:
+      value: -6.291e-5
+      units: "1/mb^2"
+      source: "[same as vickery_wadhera.rmax.intercept]"
+    lat_coeff:
+      value: 0.0337
+      units: "1/deg"
+      source: "[same as vickery_wadhera.rmax.intercept]"
+    sigma_low_dp:
+      value: 0.448
+      units: "dimensionless"
+      source: "V&W (2008) ERDC TR-08-06 heteroscedastic σ for ln(Rmax) when Δp ≤ 87 mb."
+    sigma_mid_dp_a:
+      value: 1.137
+      units: "dimensionless"
+      source: "V&W (2008) σ = a − b·Δp for 87 < Δp ≤ 120 mb; intercept term."
+    sigma_mid_dp_b:
+      value: 0.00792
+      units: "1/mb"
+      source: "V&W (2008) σ = a − b·Δp for 87 < Δp ≤ 120 mb; slope term."
+    sigma_high_dp:
+      value: 0.186
+      units: "dimensionless"
+      source: "V&W (2008) σ for ln(Rmax) when Δp > 120 mb."
+    dp_break_lo:
+      value: 87.0
+      units: "mb"
+      source: "V&W (2008) σ piecewise lower breakpoint."
+    dp_break_hi:
+      value: 120.0
+      units: "mb"
+      source: "V&W (2008) σ piecewise upper breakpoint."
+  # Holland B regression (eq. 14 in ERDC TR-08-06): B = intercept + rmax_coeff*Rmax_km + lat_coeff*ψ + ε
+  # Rmax_km in km (coupled to rmax equation output), ψ in degrees N. B censored to [b_min, b_max].
+  b:
+    intercept:
+      value: 1.881
+      units: "dimensionless"
+      source: "Vickery & Wadhera (2008), ERDC TR-08-06, eq. (14). See model/hazard.py."
+    rmax_coeff:
+      value: -0.00557
+      units: "1/km"
+      source: "[same as vickery_wadhera.b.intercept]. Negative: compact storms (small Rmax) have higher B."
+    lat_coeff:
+      value: -0.01295
+      units: "1/deg"
+      source: "[same as vickery_wadhera.b.intercept]"
+    sigma:
+      value: 0.221
+      units: "dimensionless"
+      source: "V&W (2008) B equation residual std."
+    b_min:
+      value: 0.5
+      units: "dimensionless"
+      source: "V&W (2008) physical lower bound for Holland B."
+    b_max:
+      value: 2.5
+      units: "dimensionless"
+      source: "V&W (2008) physical upper bound for Holland B."
+
+vulnerability:
+  gust_factor:
+    value: 1.3
+    units: "dimensionless"
+    source: "HAZUS Exposure C"
+  gust_threshold:
+    value: 65.0
+    units: "mph_gust"
+    source: "illustrative (v2)"
+  # Per-construction logistic curve: dr(g) = cap / (1 + exp(-k*(g - midpoint)))
+  # for g >= gust_threshold; 0 otherwise.  All wind speeds in 3-s peak gust (mph).
+  construction_params:
+    Manufactured:
+      midpoint: {value: 110.0, units: "mph_gust",     source: "HAZUS-anchored (v2)"}
+      cap:      {value: 1.00,  units: "fraction",      source: "HAZUS-anchored (v2)"}
+      k:        {value: 0.080, units: "per_mph_gust",  source: "HAZUS-anchored (v2)"}
+    Wood Frame:
+      midpoint: {value: 145.0, units: "mph_gust",     source: "HAZUS-anchored (v2)"}
+      cap:      {value: 1.00,  units: "fraction",      source: "HAZUS-anchored (v2)"}
+      k:        {value: 0.050, units: "per_mph_gust",  source: "HAZUS-anchored (v2)"}
+    Masonry:
+      midpoint: {value: 165.0, units: "mph_gust",     source: "HAZUS-anchored (v2)"}
+      cap:      {value: 0.90,  units: "fraction",      source: "HAZUS-anchored (v2)"}
+      k:        {value: 0.050, units: "per_mph_gust",  source: "HAZUS-anchored (v2)"}
+    Reinforced Concrete:
+      midpoint: {value: 185.0, units: "mph_gust",     source: "HAZUS-anchored (v2)"}
+      cap:      {value: 0.75,  units: "fraction",      source: "HAZUS-anchored (v2)"}
+      k:        {value: 0.045, units: "per_mph_gust",  source: "HAZUS-anchored (v2)"}
+  method:
+    value: "logistic_deterministic"
+    units: "label"
+    source: "Task 2b. Vulnerability model switch: 'logistic_deterministic' (v2 HAZUS-anchored logistic, production default, bit-identical to pre-2b baseline) | 'damage_state_mean' (5-state DS lognormal fragility, Task 2a calibration). Env-var override: CATMODEL_VULN_METHOD. See model/vulnerability.py."
+  ds_gust_threshold:
+    value: "on"
+    units: "label"
+    source: "Task 2b. Sub-switch (damage_state_mean mode only). 'on': apply 65-mph hard cutoff (preserves v2 onset behaviour for DS mode); 'off': let lognormal fragility tails handle onset (quantifies Manufactured AAL delta, Task 2b open decision). Env-var override: CATMODEL_DS_GUST_THRESHOLD. See model/vulnerability.py."
+  # ---- Damage uncertainty (Step 3.1) ----
+  damage_uncertainty:
+    value: "off"
+    units: "label"
+    source: "Step 3.1. Secondary uncertainty switch: 'off' (default, bit-identical to deterministic baseline) | 'on' (Gaussian copula common-shock Beta damage draws around the mean curve). Env-var: CATMODEL_DAMAGE_UNCERTAINTY."
+  damage_cv:
+    value: 0.40
+    units: "dimensionless"
+    source: "Placeholder, order-of-magnitude. CAS reports ~0.30 aggregate severity CV; pointwise damage-ratio CV is larger due to portfolio diversification. NOT calibrated; to be replaced — potentially with an MDR-dependent CV — in v4 when per-event damage data exists. Env-var: CATMODEL_DAMAGE_CV."
+  damage_rho:
+    value: 0.5
+    units: "dimensionless"
+    source: "Sensitivity parameter, not calibrated. Common-shock spatial correlation in [0,1]; swept in analysis/sensitivity_secondary.py. Env-var: CATMODEL_DAMAGE_RHO."
+  # 5-state damage-state fragility parameters (DS0-DS4).
+  # E[DR|g] = sum_{k=1}^{4} delta_lr_k * Phi(ln(g/theta_k)/beta)
+  # delta_lr = diff(consequence_loss_ratios[1:]) = [0.02, 0.08, 0.40, 0.50]
+  # All wind speeds: 3-s peak gust (mph).
+  # Parameters derived in calibration/fragility_thetas.py; see CLAUDE.md Task 2a.
+  damage_states:
+    consequence_loss_ratios:
+      value: [0.0, 0.02, 0.10, 0.50, 1.00]
+      units: "fraction"
+      source: "HAZUS Hurricane Technical Manual §8.1.4.3 p.8-14; DS0 (none) through DS4 (complete destruction). delta_lr=[0.02,0.08,0.40,0.50] used in kernel. See model/vulnerability.py."
+    Manufactured:
+      beta:   {value: 0.11,     units: "dimensionless", source: "calibration/fragility_thetas.py; CLAUDE.md Task 2a. Grid search beta in [0.10,0.24] minimising MSE vs v2 logistic over g=linspace(70,220,80)."}
+      thetas: {value: [66.7586, 74.5212, 110.0, 122.7906], units: "mph_gust", source: "calibration/fragility_thetas.py; CLAUDE.md Task 2a. DS1-DS4 lognormal medians (3-s peak gust, mph). theta3=v2 midpoint; theta1=88*(midpoint/145); theta2/theta4 Nelder-Mead multistart."}
+    Wood Frame:
+      beta:   {value: 0.13,     units: "dimensionless", source: "calibration/fragility_thetas.py; CLAUDE.md Task 2a."}
+      thetas: {value: [88.0, 100.2169, 145.0, 165.1301], units: "mph_gust", source: "calibration/fragility_thetas.py; CLAUDE.md Task 2a."}
+    Masonry:
+      beta:   {value: 0.15,     units: "dimensionless", source: "calibration/fragility_thetas.py; CLAUDE.md Task 2a."}
+      thetas: {value: [100.1379, 116.3437, 165.0, 191.7027], units: "mph_gust", source: "calibration/fragility_thetas.py; CLAUDE.md Task 2a."}
+    Reinforced Concrete:
+      beta:   {value: 0.20,     units: "dimensionless", source: "calibration/fragility_thetas.py; CLAUDE.md Task 2a."}
+      thetas: {value: [112.2759, 143.6503, 185.0, 226.7991], units: "mph_gust", source: "calibration/fragility_thetas.py; CLAUDE.md Task 2a."}
+
+# reinsurance block removed in Step 4.4 — migrated to config/reinsurance.yaml
+# which adds finite reinstatements and programme-cost fields.
+
+summary:
+  return_periods:
+    value: [5, 10, 25, 50, 100, 250, 500, 1000]
+    units: "years"
+    source: "Standard industry RP set. 100/250 are the primary validation anchor (committed baseline). 500/1000 sourced from first real run in Step 4.2. See model/summary.py."
+
+scenario:
+  florida_bbox:
+    lat_min: {value: 24.0,  units: "degrees_N", source: "Southern tip of FL Keys; captures all FL peninsula + panhandle landfalls."}
+    lat_max: {value: 31.5,  units: "degrees_N", source: "Northern FL panhandle."}
+    lon_min: {value: -87.6, units: "degrees_E", source: "Westernmost panhandle tip (Fort Pickens area). Excludes Alabama/Louisiana coasts."}
+    lon_max: {value: -79.5, units: "degrees_E", source: "FL Atlantic coast south of Cape Canaveral. Excludes Bahamas (76–79W)."}
+  track_interp_step_hr:
+    value: 1.0
+    units: "hours"
+    source: "Linear interpolation step for HURDAT2 track densification. Hourly spacing is standard for wind-field integration over a moving storm. See model/scenario.py."
+  grid_step_deg:
+    value: 0.05
+    units: "degrees"
+    source: "Regular grid step for footprint validation (~5.5 km at 25°N; ~3 nm). Balances spatial resolution vs compute time. See validation/footprint_metrics.py."
+  grid_pad_deg:
+    value: 2.0
+    units: "degrees"
+    source: "Grid padding beyond track bbox in degrees. Ensures the 34-kt ring (outermost threshold) is fully captured even when it extends beyond the observed track points. See validation/footprint_metrics.py."
+
+validation:
+  out_of_sample:
+    dispersion:
+      year_min:
+        value: 1966
+        units: "year"
+        source: "Satellite era start — consistent detection threshold for FL HU landfalls."
+      year_max:
+        value: 2024
+        units: "year"
+        source: "End of HURDAT2 record used."
+    rate_consistency:
+      year_min:
+        value: 2006
+        units: "year"
+        source: "Start of AMO covariate-available window; aligns with production GLM evaluation period."
+      year_max:
+        value: 2023
+        units: "year"
+        source: "End of AMO covariate-available window (2024 is NaN-dropped in frequency_glm.py)."
+    intensity:
+      train_year_max:
+        value: 2000
+        units: "year"
+        source: "Last year of training split. Pre-2001 record (n=97); pre-satellite Vmax bias non-directional per intensity.py."
+      test_year_min:
+        value: 2001
+        units: "year"
+        source: "First year of out-of-sample test split."
+      test_year_max:
+        value: 2024
+        units: "year"
+        source: "End of HURDAT2 record used."

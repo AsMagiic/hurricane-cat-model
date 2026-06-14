@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hurricane-cat-model"
+version = "3.0.0.dev0"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy",
+    "pandas",
+    "scipy",
+    "matplotlib",
+    "statsmodels",
+    "geopandas",
+    "shapely",
+    "pyproj",
+    "pyyaml",
+    "pytest",
+]
+
+[tool.setuptools]
+py-modules = ["model_config"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["model*", "calibration*", "data*", "tests*"]

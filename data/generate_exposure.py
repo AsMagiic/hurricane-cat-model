@@ -1,40 +1,48 @@
 """
 Generate a synthetic but realistic exposure file for a Florida coastal
-homeowners portfolio and save it to data/exposure.csv.
+homeowners portfolio and save it as OED v4 Location + Account CSVs.
 
 All random draws come from a single Generator seeded at SEED so the output
 is fully reproducible across machines and Python versions.
+
+Outputs
+-------
+data/oed/location.csv  -- one row per risk location (OED Location file)
+data/oed/account.csv   -- one row for the single account/policy (OED Account file)
 """
 
 import os
 import numpy as np
 import pandas as pd
 
-# ---------------------------------------------------------------------------
-# Parameters
-# ---------------------------------------------------------------------------
-N_LOCATIONS = 1000
-SEED        = 42
-TARGET_TIV  = 500_000_000
+from model_config import load_exposure_cfg
+_ecfg = load_exposure_cfg()
 
-COUNTIES = [
-    "Miami-Dade", "Broward", "Palm Beach", "Lee",
-    "Pinellas", "Hillsborough", "Collier", "Monroe",
-]
-# More weight toward south Florida, as specified.
-COUNTY_WEIGHTS = np.array([0.22, 0.16, 0.14, 0.10, 0.10, 0.10, 0.09, 0.09])
+# ---------------------------------------------------------------------------
+# Parameters -- loaded from config/exposure.yaml
+# ---------------------------------------------------------------------------
+N_LOCATIONS      = _ecfg.n_locations
+SEED             = _ecfg.seed
+TARGET_TIV       = _ecfg.target_tiv
+COUNTIES         = _ecfg.counties
+COUNTY_WEIGHTS   = np.array(_ecfg.county_weights)
+COUNTY_CENTROIDS = _ecfg.county_centroids
 
-# (lat, lon) centroid used as the origin for the normal jitter.
-COUNTY_CENTROIDS = {
-    "Miami-Dade":   (25.61, -80.40),
-    "Broward":      (26.15, -80.30),
-    "Palm Beach":   (26.65, -80.20),
-    "Lee":          (26.55, -81.90),
-    "Pinellas":     (27.90, -82.70),
-    "Hillsborough": (27.95, -82.30),
-    "Collier":      (26.10, -81.60),
-    "Monroe":       (24.80, -81.00),
-}
+# OED mapping tables from config
+_OMED = _ecfg.oed_mapping
+CONST_TO_OED   = _OMED.construction_to_oed   # {"Wood Frame": 5050, ...}
+OCC_TO_OED     = _OMED.occupancy_to_oed      # {"Single Family": 1051, ...}
+PERIL          = _OMED.peril                 # "WTC"
+CURRENCY       = _OMED.currency              # "USD"
+COUNTRY_CODE   = _OMED.country_code          # "US"
+AREA_CODE      = _OMED.area_code             # "FL"
+AREA_NAME      = _OMED.area_name             # "Florida"
+COUNTY_SCHEME  = _OMED.county_geog_scheme    # "CNTY"
+DED_CODE       = int(_OMED.ded_code)         # 0
+DED_TYPE       = int(_OMED.ded_type)         # 0
+LIMIT_TYPE     = int(_OMED.limit_type)       # 0
+ORG_CONST_SCH  = _OMED.org_construction_scheme  # "MODEL"
+ORG_OCC_SCH    = _OMED.org_occupancy_scheme     # "MODEL"
 
 # ---------------------------------------------------------------------------
 # Single RNG — every draw from here in sequence; order must not change.
@@ -60,10 +68,11 @@ lat = np.round(cent_lat + rng.normal(0, 0.1, N_LOCATIONS), 4)
 lon = np.round(cent_lon + rng.normal(0, 0.1, N_LOCATIONS), 4)
 
 # --- tiv ---
-# Lognormal with E[X] = 500_000 and CV = 1.0.
-# CV = 1  →  σ_log = sqrt(ln(2)),  μ_log = ln(E[X]) − σ_log² / 2.
-tiv_sigma_log = np.sqrt(np.log(2))                          # ≈ 0.8326
-tiv_mu_log    = np.log(500_000) - tiv_sigma_log**2 / 2
+# Lognormal with E[X] = TARGET_TIV/N_LOCATIONS and a configurable CV.
+# sigma_log = sqrt(ln(1 + CV^2));  mu_log = ln(E[X]) - sigma_log^2 / 2.
+TIV_CV        = _ecfg.tiv_cv
+tiv_sigma_log = np.sqrt(np.log(1 + TIV_CV**2))             # CV=1 -> sqrt(ln(2)) ~= 0.8326
+tiv_mu_log    = np.log(TARGET_TIV / N_LOCATIONS) - tiv_sigma_log**2 / 2
 raw_tiv       = rng.lognormal(mean=tiv_mu_log, sigma=tiv_sigma_log, size=N_LOCATIONS)
 
 # Scale the vector so its sum equals TARGET_TIV, then round to integers.
@@ -74,15 +83,15 @@ tiv = np.round(raw_tiv / raw_tiv.sum() * TARGET_TIV).astype(np.int64)
 tiv[np.argmax(tiv)] += TARGET_TIV - tiv.sum()
 
 # --- occupancy ---
-OCC_CHOICES = ["Single Family", "Condo", "Mobile Home"]
-OCC_WEIGHTS = np.array([0.68, 0.22, 0.10])
+OCC_CHOICES = _ecfg.occupancy.choices
+OCC_WEIGHTS = np.array(_ecfg.occupancy.weights)
 occupancy   = rng.choice(OCC_CHOICES, size=N_LOCATIONS, p=OCC_WEIGHTS)
 
 # --- construction (must be consistent with occupancy) ---
 # Rule: Mobile Home → always "Manufactured".
 # All other occupancies draw from the remaining types; Masonry is the majority.
-CONST_OTHERS  = ["Wood Frame", "Masonry", "Reinforced Concrete"]
-CONST_WEIGHTS = np.array([0.25, 0.55, 0.20])
+CONST_OTHERS  = _ecfg.construction.non_manufactured_types
+CONST_WEIGHTS = np.array(_ecfg.construction.weights)
 
 construction = np.empty(N_LOCATIONS, dtype=object)
 mobile_mask  = occupancy == "Mobile Home"
@@ -93,8 +102,8 @@ construction[~mobile_mask] = rng.choice(CONST_OTHERS, size=n_other, p=CONST_WEIG
 # --- deductible_pct ---
 # Hurricane deductibles in Florida are set as a percentage of TIV.
 # Common regulatory tiers: 2 %, 5 %, 10 %.
-DED_CHOICES = np.array([0.02, 0.05, 0.10])
-DED_WEIGHTS = np.array([0.30, 0.50, 0.20])
+DED_CHOICES = np.array(_ecfg.deductibles.choices)
+DED_WEIGHTS = np.array(_ecfg.deductibles.weights)
 deductible_pct = rng.choice(DED_CHOICES, size=N_LOCATIONS, p=DED_WEIGHTS)
 
 # --- deductible (dollar amount) and limit ---
@@ -102,58 +111,111 @@ deductible = np.round(deductible_pct * tiv).astype(np.int64)
 limit      = tiv.copy()
 
 # ---------------------------------------------------------------------------
-# Assemble DataFrame — column order is fixed per spec
+# Build OED Location DataFrame -- sorted by LocNumber (= location_id order)
 # ---------------------------------------------------------------------------
-df = pd.DataFrame({
-    "location_id":    location_ids,
-    "state":          states,
-    "county":         county_arr,
-    "lat":            lat,
-    "lon":            lon,
-    "tiv":            tiv,
-    "construction":   construction,
-    "occupancy":      occupancy,
-    "deductible_pct": deductible_pct,
-    "deductible":     deductible,
-    "limit":          limit,
+loc_df = pd.DataFrame({
+    "PortNumber":            [1]          * N_LOCATIONS,
+    "AccNumber":             ["A0001"]    * N_LOCATIONS,
+    "LocNumber":             location_ids,
+    "CountryCode":           [COUNTRY_CODE] * N_LOCATIONS,
+    "LocPerilsCovered":      [PERIL]      * N_LOCATIONS,
+    "LocCurrency":           [CURRENCY]   * N_LOCATIONS,
+    "AreaCode":              [AREA_CODE]  * N_LOCATIONS,
+    "AreaName":              [AREA_NAME]  * N_LOCATIONS,
+    "GeogScheme1":           [COUNTY_SCHEME] * N_LOCATIONS,
+    "GeogName1":             county_arr,
+    "Latitude":              lat,
+    "Longitude":             lon,
+    "BuildingTIV":           tiv,
+    "ConstructionCode":      [CONST_TO_OED[c] for c in construction],
+    "OccupancyCode":         [OCC_TO_OED[o] for o in occupancy],
+    "LocDed1Building":       deductible,
+    "LocDedCode1Building":   [DED_CODE]   * N_LOCATIONS,
+    "LocDedType1Building":   [DED_TYPE]   * N_LOCATIONS,
+    "LocLimit1Building":     limit,
+    "LocLimitType1Building": [LIMIT_TYPE] * N_LOCATIONS,
+    "OrgConstructionScheme": [ORG_CONST_SCH] * N_LOCATIONS,
+    "OrgConstructionCode":   construction,
+    "OrgOccupancyScheme":    [ORG_OCC_SCH]   * N_LOCATIONS,
+    "OrgOccupancyCode":      occupancy,
 })
+# LocNumber is already in ascending order; sort is a no-op but makes the
+# contract explicit: output row order = LocNumber sort order.
+loc_df = loc_df.sort_values("LocNumber").reset_index(drop=True)
 
 # ---------------------------------------------------------------------------
-# Save
+# Build OED Account DataFrame -- single row (one account, one policy)
 # ---------------------------------------------------------------------------
-out_dir  = os.path.dirname(os.path.abspath(__file__))
-out_path = os.path.join(out_dir, "exposure.csv")
-df.to_csv(out_path, index=False)
-print(f"Saved {N_LOCATIONS} rows -> {out_path}\n")
+acc_df = pd.DataFrame([{
+    "PortNumber":        1,
+    "AccNumber":         "A0001",
+    "AccCurrency":       CURRENCY,
+    "PolNumber":         "P0001",
+    "PolPerilsCovered":  PERIL,
+}])
+
+# ---------------------------------------------------------------------------
+# Save OED files
+# ---------------------------------------------------------------------------
+out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "oed")
+os.makedirs(out_dir, exist_ok=True)
+
+loc_path = os.path.join(out_dir, "location.csv")
+acc_path = os.path.join(out_dir, "account.csv")
+
+loc_df.to_csv(loc_path, index=False)
+acc_df.to_csv(acc_path, index=False)
+
+print(f"Saved {N_LOCATIONS} location rows -> {loc_path}")
+print(f"Saved {len(acc_df)} account row   -> {acc_path}\n")
 
 # ---------------------------------------------------------------------------
 # Validation asserts
 # ---------------------------------------------------------------------------
 print("=== Validation ===")
 
-tiv_sum = int(df["tiv"].sum())
+tiv_sum = int(loc_df["BuildingTIV"].sum())
 assert tiv_sum == TARGET_TIV, f"TIV sum {tiv_sum:,} != {TARGET_TIV:,}"
 print(f"[OK] TIV sum == {tiv_sum:,}")
 
-n_unique = df["location_id"].nunique()
+n_unique = loc_df["LocNumber"].nunique()
 assert n_unique == N_LOCATIONS, f"Unique IDs {n_unique} != {N_LOCATIONS}"
-print(f"[OK] location_id unique count == {n_unique}")
+print(f"[OK] LocNumber unique count == {n_unique}")
 
-null_count = int(df.isnull().sum().sum())
-assert null_count == 0, f"Nulls found:\n{df.isnull().sum()}"
+null_count = int(loc_df.isnull().sum().sum()) + int(acc_df.isnull().sum().sum())
+assert null_count == 0, f"Nulls found:\n{loc_df.isnull().sum()}"
 print("[OK] No nulls")
 
-mfg_mask = df["construction"] == "Manufactured"
-mh_mask  = df["occupancy"]    == "Mobile Home"
+mfg_mask = loc_df["OrgConstructionCode"] == "Manufactured"
+mh_mask  = loc_df["OrgOccupancyCode"]    == "Mobile Home"
 assert (mfg_mask == mh_mask).all(), "Manufactured <=> Mobile Home mismatch"
 print("[OK] Manufactured <=> Mobile Home (bijection holds)")
 
-expected_ded = (df["deductible_pct"] * df["tiv"]).round().astype(np.int64)
-assert (df["deductible"].astype(np.int64) == expected_ded).all(), \
-    "deductible != round(deductible_pct * tiv)"
-print("[OK] deductible == round(deductible_pct * tiv)")
+ded_check = (loc_df["LocDed1Building"].astype(np.int64) >= 0).all()
+assert ded_check, "Negative deductible found"
+print("[OK] All deductibles non-negative")
+
+assert set(loc_df["LocPerilsCovered"].unique()) == {PERIL}, "Unexpected peril codes"
+print(f"[OK] LocPerilsCovered == '{PERIL}' for all rows")
+
+assert (loc_df["LocDedType1Building"] == DED_TYPE).all(), "DedType mismatch"
+assert (loc_df["LocLimitType1Building"] == LIMIT_TYPE).all(), "LimitType mismatch"
+print("[OK] LocDedType1Building == 0 (Amount); LocLimitType1Building == 0 (Amount)")
+
+valid_const_codes = set(CONST_TO_OED.values())
+assert set(loc_df["ConstructionCode"].unique()).issubset(valid_const_codes), \
+    "Unknown ConstructionCode"
+valid_occ_codes = set(OCC_TO_OED.values())
+assert set(loc_df["OccupancyCode"].unique()).issubset(valid_occ_codes), \
+    "Unknown OccupancyCode"
+print("[OK] All ConstructionCode / OccupancyCode values in valid OED ranges")
+
+assert len(acc_df) == 1, "Expected exactly 1 account row"
+assert acc_df["PolPerilsCovered"].iloc[0] == PERIL, "PolPerilsCovered mismatch"
+print("[OK] Single account row with PolPerilsCovered == 'WTC'")
 
 print("\n=== Head ===")
-print(df.head().to_string())
+print(loc_df.head().to_string())
 print("\n=== Describe ===")
-print(df.describe(include="all").to_string())
+print(loc_df[["BuildingTIV", "Latitude", "Longitude",
+              "LocDed1Building", "LocLimit1Building"]].describe().to_string())

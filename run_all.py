@@ -9,9 +9,10 @@ Steps
   1  data/generate_exposure.py   synthetic FL portfolio (1k locations, 500M TIV)
   2  model/hazard.py              stochastic moving-track hazard (demo + asserts)
   3  model/vulnerability.py       HAZUS-anchored damage curves (demo + asserts)
-  4  model/loss.py                100k-year loss catalog (ground-up + gross)
+  4  model/loss.py                100k-year loss catalog (ground-up + gross + EventId)
   5  model/reinsurance.py         per-occurrence XoL programme + gross vs net OEP
-  6  model/summary.py             metrics table + outputs/ep_master.png
+  5.5 model/outputs.py            standard YLT + SELT (sim -> ylt.csv + elt.csv)
+  6  model/summary.py             metrics table (reads ylt.csv) + outputs/ep_master.png
 
 Usage
 -----
@@ -57,32 +58,47 @@ def main():
             "instead of 100,000.  Tests the entire pipeline end-to-end in ~15s."
         ),
     )
+    parser.add_argument(
+        "--results-dir", default="results",
+        help=(
+            "Directory for summary_metrics.csv output (default: results/). "
+            "Used by analysis/waterfall.py to isolate subprocess runs from the "
+            "production results/summary_metrics.csv."
+        ),
+    )
     args = parser.parse_args()
 
     py = sys.executable
 
-    loss_cmd = [py, os.path.join("model", "loss.py")]
+    loss_cmd = [py, "-m", "model.loss"]
     if args.quick:
         loss_cmd.append("--quick")
 
+    summary_cmd = [py, "-m", "model.summary"]
+    if args.results_dir != "results":
+        summary_cmd += ["--results-dir", args.results_dir]
+
     steps = [
         ("Step 1 | Exposure generation   (data/generate_exposure.py)",
-         [py, os.path.join("data", "generate_exposure.py")]),
+         [py, "-m", "data.generate_exposure"]),
 
         ("Step 2 | Hazard module          (model/hazard.py -- demo + asserts)",
-         [py, os.path.join("model", "hazard.py")]),
+         [py, "-m", "model.hazard"]),
 
         ("Step 3 | Vulnerability module   (model/vulnerability.py -- demo + asserts)",
-         [py, os.path.join("model", "vulnerability.py")]),
+         [py, "-m", "model.vulnerability"]),
 
         ("Step 4 | Loss simulation        (model/loss.py)",
          loss_cmd),
 
         ("Step 5 | Reinsurance            (model/reinsurance.py)",
-         [py, os.path.join("model", "reinsurance.py")]),
+         [py, "-m", "model.reinsurance"]),
+
+        ("Step 5.5 | YLT + SELT build     (model/outputs.py)",
+         [py, "-m", "model.outputs"]),
 
         ("Step 6 | Summary + master plot  (model/summary.py)",
-         [py, os.path.join("model", "summary.py")]),
+         summary_cmd),
     ]
 
     t_start = time.perf_counter()
@@ -107,9 +123,11 @@ def main():
     print("  outputs/vulnerability_curves.png")
     print("  outputs/ep_gross_vs_net.png")
     print("  outputs/ep_master.png")
-    print("  results/events.csv")
+    print("  results/events.csv          (one row per event, EventId first column)")
     print("  results/annual_losses.csv")
-    print("  results/events_net.csv")
+    print("  results/events_net.csv      (EventId carried through from events.csv)")
+    print("  results/ylt.csv             (Year Loss Table — single source for EP metrics)")
+    print("  results/elt.csv             (Sampled Event Loss Table — one row per event)")
     print("  results/summary_metrics.csv")
     print()
 

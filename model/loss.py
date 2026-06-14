@@ -4,7 +4,7 @@ Loss integration engine for the Florida hurricane cat model (Step 4).
 Wires together:
   hazard.py        -> stochastic moving-track wind fields (sustained mph)
   vulnerability.py -> HAZUS-anchored damage ratio curves (3-s gust)
-  data/exposure.csv -> TIV, deductible, policy limit per location
+  model.exposure_io -> TIV, deductible, policy limit per location (OED v4 adapter)
 
 Three-level loss hierarchy applied per location, per event (in this order):
   gust      = sustained_wind * GUST_FACTOR          (Exposure C, open coastal)
@@ -20,33 +20,40 @@ Outputs -> results/  (gitignored; fully reproducible by seed=42):
 """
 
 import os
-import sys
 import time
 import math
 import numpy as np
 import pandas as pd
+from scipy.special import ndtr as _ndtr, betaincinv as _betaincinv
 
-_DIR  = os.path.dirname(os.path.abspath(__file__))
-_ROOT = os.path.dirname(_DIR)
-sys.path.insert(0, _DIR)
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+from model_config import load_model_cfg
+_mcfg = load_model_cfg()
 
-from hazard        import simulate_year, wind_at_locations, LAMBDA
-from vulnerability import GUST_FACTOR, GUST_THRESHOLD, CONSTRUCTION_PARAMS
-from ep_utils      import oep_pml, ep_curve, pml_rank_diagnostic
+from model.hazard        import simulate_year, LAMBDA
+from model.wind_field    import wind_at_locations, StormParams
+from model.vulnerability import GUST_FACTOR, GUST_THRESHOLD, CONSTRUCTION_PARAMS, build_event_kernel
+from model.ep_utils      import oep_pml, ep_curve, pml_rank_diagnostic
+from model.exposure_io   import load_portfolio
 
 # ---------------------------------------------------------------------------
-# Configuration
+# Configuration -- loaded from config/model_v3.yaml
 # ---------------------------------------------------------------------------
-SEED    = 42
-N_YEARS = 100_000
+SEED    = _mcfg.simulation.seed
+N_YEARS = _mcfg.simulation.n_years
+
+# Damage uncertainty switches (Step 3.1)
+_DAMAGE_UNCERTAINTY = _mcfg.vulnerability.damage_uncertainty  # "off" | "on"
+_DAMAGE_CV          = float(_mcfg.vulnerability.damage_cv)    # pointwise DR coeff of variation
+_DAMAGE_RHO         = float(_mcfg.vulnerability.damage_rho)   # common-shock correlation in [0,1]
 
 RESULTS_DIR = os.path.join(_ROOT, "results")
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
 # ---------------------------------------------------------------------------
-# Load exposure
+# Load exposure (OED Location + Account via compatibility adapter)
 # ---------------------------------------------------------------------------
-_exp = pd.read_csv(os.path.join(_ROOT, "data", "exposure.csv"))
+_exp = load_portfolio()
 
 lats          = _exp["lat"].to_numpy(dtype=float)
 lons          = _exp["lon"].to_numpy(dtype=float)
@@ -63,14 +70,14 @@ print(f"Exposure: {n_loc:,} locations | TIV USD {TOTAL_TIV/1e6:.0f}M")
 print(f"Results  -> {RESULTS_DIR}")
 
 # ---------------------------------------------------------------------------
-# Precompute per-location vulnerability arrays (one-time, outside the loop)
+# Precompute per-location vulnerability kernel (one-time, outside the loop)
 #
-# Using module-level arrays so _event_loss() is a pure numpy kernel with no
-# Python-level per-location iteration.
+# build_event_kernel() captures per-location parameter arrays in a closure so
+# _event_loss() remains a pure numpy kernel with no Python-level iteration.
+# The kernel switches on vulnerability.method from config; logistic mode is
+# bit-identical to the old inlined midpoints/caps/ks expression.
 # ---------------------------------------------------------------------------
-midpoints = np.array([CONSTRUCTION_PARAMS[c]["midpoint"] for c in constructions], dtype=float)
-caps      = np.array([CONSTRUCTION_PARAMS[c]["cap"]      for c in constructions], dtype=float)
-ks        = np.array([CONSTRUCTION_PARAMS[c]["k"]        for c in constructions], dtype=float)
+_vuln_kernel = build_event_kernel(constructions)
 
 # Integer index arrays for fast group aggregation via np.bincount
 unique_constructions = list(CONSTRUCTION_PARAMS.keys())   # insertion order: Mfg, WF, Mas, RC
@@ -87,23 +94,121 @@ tiv_per_cty = np.array([tivs[cty_idx == i].sum() for i in range(n_cty)])
 
 
 # ---------------------------------------------------------------------------
+# Damage uncertainty helpers (Step 3.1)
+# ---------------------------------------------------------------------------
+
+def _beta_params(m, cv):
+    """
+    (mean array, scalar cv) -> (alpha, beta_param) arrays for Beta distribution.
+
+    Extension point: v4 replaces constant cv with an MDR-dependent cv function here,
+    capturing the empirical mean-variance relationship from per-event damage data.
+
+    Guards:
+      - v is capped below m*(1-m) to ensure alpha, beta > 0 (prevents degenerate Beta).
+      - cv > 0 is guaranteed by range validation in model_config.py.
+      - m=0 locations are handled upstream by the zeros mask in _damage_draw.
+    """
+    v     = (cv * m) ** 2
+    max_v = m * (1.0 - m)
+    v     = np.minimum(v, max_v * (1.0 - 1e-7))  # cap ensures conc > 0
+    conc  = m * (1.0 - m) / v - 1.0
+    return m * conc, (1.0 - m) * conc
+
+
+def _damage_draw(dr_mean, rng):
+    """
+    Gaussian copula common-shock Beta draw for one event.
+
+    Mechanism:
+      z_event ~ N(0,1)          — one draw, shared across ALL locations (common shock)
+      eps_i   ~ N(0,1)          — n_loc independent draws (idiosyncratic noise)
+      U_i = Phi(sqrt(rho)*z + sqrt(1-rho)*eps_i)   in [0,1] per location
+      dr_i = Beta.ppf(U_i ; alpha_i, beta_i)       realized damage ratio
+
+    With rho=0: U_i are independent -> independent noise washes out over portfolio (LLN).
+    With rho=1: U_i = Phi(z_event) identical for all i -> common shock does NOT wash out.
+
+    Guards:
+      m=0 locations return 0.0 (degenerate Beta; no uncertainty on zero damage).
+      u is clipped to [1e-12, 1-1e-12] to prevent NaN from betaincinv when ndtr
+      underflows to exactly 0.0 or 1.0 at extreme z values.
+    """
+    z_event = rng.standard_normal()           # 1 draw — common shock for this event
+    eps     = rng.standard_normal(n_loc)      # n_loc draws — idiosyncratic noise
+    u = _ndtr(np.sqrt(_DAMAGE_RHO) * z_event + np.sqrt(1.0 - _DAMAGE_RHO) * eps)
+    u = np.clip(u, 1e-12, 1.0 - 1e-12)       # tail-NaN guard
+
+    zeros  = (dr_mean == 0.0)
+    m_safe = np.where(zeros, 0.5, dr_mean)    # avoid degenerate Beta params for zero-damage locs
+    alpha, beta_p = _beta_params(m_safe, _DAMAGE_CV)
+    realized = _betaincinv(alpha, beta_p, u)
+    realized = np.where(zeros, 0.0, realized)
+    return np.clip(realized, 0.0, 1.0)        # safety clamp against float noise
+
+
+# ---------------------------------------------------------------------------
 # Vectorized per-event loss kernel
 # ---------------------------------------------------------------------------
-def _event_loss(wind_sustained):
+
+def compute_event_loss(wind_sustained, *, tivs, deductibles, pol_limits,
+                       gust_factors, vuln_kernel, dmg_rng=None):
+    """
+    Pure, exposure-explicit per-event loss kernel.
+
+    Parameters (all keyword-only after wind_sustained)
+    ----------
+    wind_sustained : (n_loc,) float64 — 1-min sustained wind, mph
+    tivs           : (n_loc,) float64 — total insurable value, USD
+    deductibles    : (n_loc,) float64 — per-location deductible, USD
+    pol_limits     : (n_loc,) float64 — per-location policy limit, USD
+    gust_factors   : (n_loc,) float64 — per-location sustained-to-gust multiplier.
+        v4 terrain seam: replace np.full(n_loc, GUST_FACTOR) with a per-location
+        source derived from site-exposure classification.
+    vuln_kernel    : callable — (n_loc,) gust mph -> (n_loc,) mean damage ratio
+    dmg_rng        : optional RNG for Gaussian copula Beta draws (Step 3.1).
+        Note: the dmg_rng path assumes len(wind_sustained) == module n_loc
+        (_damage_draw closes over module-level n_loc/CV/rho); fully
+        exposure-agnostic only when dmg_rng is None.
+
+    Returns
+    -------
+    ground_up : (n_loc,) float64 — damage before deductible = dr * tiv
+    gross     : (n_loc,) float64 — damage after deductible, capped at pol_limit
+    dr        : (n_loc,) float64 — realized damage ratio (mean when dmg_rng is None)
+    """
+    gust      = wind_sustained * gust_factors
+    dr        = vuln_kernel(gust)
+    if dmg_rng is not None:
+        dr = _damage_draw(dr, dmg_rng)
+    ground_up = dr * tivs
+    gross     = np.clip(ground_up - deductibles, 0.0, pol_limits)
+    return ground_up, gross, dr
+
+
+def _event_loss(wind_sustained, dmg_rng=None):
     """
     (n_loc,) sustained wind mph  ->  (ground_up, gross) both (n_loc,) float64.
 
-    Inlines the damage ratio formula for speed (avoids repeated function-call
-    overhead over 70k events):
-      gust = wind * GUST_FACTOR
-      dr   = cap / (1 + exp(-k*(gust - midpoint)))   [if gust >= GUST_THRESHOLD]
-           = 0                                        [otherwise]
+    Thin wrapper around compute_event_loss that binds module-level exposure globals
+    and a uniform gust factor array (Exposure C, 1.3 scalar broadcast — v3 baseline).
+
+    dmg_rng: when not None, realized damage ratios are drawn from a Beta
+    distribution via _damage_draw (Gaussian copula common-shock). When None
+    (default, damage_uncertainty=off), the deterministic mean curve is used —
+    bit-identical to the pre-3.1 baseline.
     """
-    gust      = wind_sustained * GUST_FACTOR
-    raw       = caps / (1.0 + np.exp(-ks * (gust - midpoints)))
-    dr        = np.where(gust < GUST_THRESHOLD, 0.0, raw)
-    ground_up = dr * tivs
-    gross     = np.clip(ground_up - deductibles, 0.0, pol_limits)
+    # v4 terrain seam: replace np.full with a per-location source when site-exposure is added
+    gust_factors = np.full(n_loc, GUST_FACTOR)
+    ground_up, gross, _ = compute_event_loss(
+        wind_sustained,
+        tivs=tivs,
+        deductibles=deductibles,
+        pol_limits=pol_limits,
+        gust_factors=gust_factors,
+        vuln_kernel=_vuln_kernel,
+        dmg_rng=dmg_rng,
+    )
     return ground_up, gross
 
 
@@ -124,9 +229,15 @@ def run_simulation(n_years, seed=SEED):
     aal_cty_gr : ndarray (n_cty,)  per-county gross AAL
     """
     rng = np.random.default_rng(seed)
+    # Damage substream: two-integer entropy [seed, 1] produces a SeedSequence hash
+    # orthogonal to single-integer SeedSequence(seed) used by rng. Does NOT share
+    # rng's spawn tree — rng's spawn counter stays at 0 before the year loop, so
+    # storm 1 keeps slot 0 (unchanged from pre-3.1, bit-identical to 3.0c when off).
+    damage_rng = np.random.default_rng([seed, 1])
 
-    event_rows  = []
-    annual_rows = []
+    event_rows      = []
+    annual_rows     = []
+    event_id_counter = 0   # global monotonic counter; 1-based, no RNG draws
 
     # Running sums for group AALs (divided by n_years at the end)
     sum_con_gu = np.zeros(n_con)
@@ -148,8 +259,20 @@ def run_simulation(n_years, seed=SEED):
         agg_gu = agg_gr = max_gr = 0.0
 
         for track, meta in year_events:
-            winds   = wind_at_locations(track, meta["rmax"], lats, lons)
-            gu, gr  = _event_loss(winds)
+            event_id_counter += 1
+            winds   = wind_at_locations(
+                track,
+                StormParams(
+                    rmax=meta["rmax"],
+                    b=meta["b"],
+                    dp_mb=meta["dp_mb"],
+                    lat=meta["landfall_lat"],
+                    heading_deg=meta["heading_deg"],
+                    vt_kmh=meta["translation_speed_kmh"],
+                ),
+                lats, lons,
+            )
+            gu, gr  = _event_loss(winds, damage_rng if _DAMAGE_UNCERTAINTY == "on" else None)
             port_gu = float(gu.sum())
             port_gr = float(gr.sum())
 
@@ -165,6 +288,7 @@ def run_simulation(n_years, seed=SEED):
             sum_cty_gr += np.bincount(cty_idx, weights=gr, minlength=n_cty)
 
             event_rows.append({
+                "EventId":             event_id_counter,
                 "year":                yr,
                 "vmax":                float(meta["vmax_landfall"]),
                 "category":            int(meta["category"]),

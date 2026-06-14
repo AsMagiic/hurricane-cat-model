@@ -9,29 +9,28 @@ Runs N_STORMS = 10,000 synthetic hurricanes and checks three properties:
   3. Multi-county accumulation per storm   (spatial correlation test)
 """
 
-import sys
 import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 
-# hazard.py lives in the same directory; add model/ to the path.
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from hazard import sample_storm, wind_at_locations, COAST_POINTS
+from model.hazard       import (sample_storm, COAST_POINTS,
+                               _S_SAMPLES_KM, _COAST_LINE_3086, _FROM_3086)
+from model.wind_field  import wind_at_locations, StormParams
+from model.exposure_io import load_portfolio
 
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-ROOT     = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-EXP_PATH = os.path.join(ROOT, "data",    "exposure.csv")
-OUT_DIR  = os.path.join(ROOT, "outputs")
+ROOT    = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUT_DIR = os.path.join(ROOT, "outputs")
 os.makedirs(OUT_DIR, exist_ok=True)
 
 # ---------------------------------------------------------------------------
-# Load exposure portfolio
+# Load exposure portfolio via OED adapter
 # ---------------------------------------------------------------------------
-exp      = pd.read_csv(EXP_PATH)
+exp      = load_portfolio()
 lats     = exp["lat"].to_numpy()
 lons     = exp["lon"].to_numpy()
 tivs     = exp["tiv"].to_numpy(dtype=float)
@@ -59,7 +58,18 @@ for i in range(N_STORMS):
     if (i + 1) % 2_000 == 0:
         print(f"  {i + 1:,} / {N_STORMS:,}")
     track, meta   = sample_storm(rng)
-    all_winds[i]  = wind_at_locations(track, meta["rmax"], lats, lons)
+    all_winds[i]  = wind_at_locations(
+        track,
+        StormParams(
+            rmax=meta["rmax"],
+            b=meta["b"],
+            dp_mb=meta["dp_mb"],
+            lat=meta["landfall_lat"],
+            heading_deg=meta["heading_deg"],
+            vt_kmh=meta["translation_speed_kmh"],
+        ),
+        lats, lons,
+    )
     lf_lats[i]    = meta["landfall_lat"]
     lf_lons[i]    = meta["landfall_lon"]
     storm_cats[i] = meta["category"]
@@ -97,22 +107,40 @@ plt.close(fig1)
 print(f"Plot saved -> {p1}")
 
 # SE Atlantic corridor filter: lat [25.4, 27.0], lon > -80.5
-# Covers COAST_POINTS segments 1-3 fully (weights 1.5+2.5+3.0 = 7.0)
-# plus partial contributions from segments 0 (N tail) and 4 (Keys transition).
-# Expected fraction: segs 2+3 fully (5.5/18.5=29.7%) + partial segs 1,4
-# -> roughly 35-40% of all landfalls.
 se_mask = (lf_lats >= 25.4) & (lf_lats <= 27.0) & (lf_lons > -80.5)
 se_n    = int(se_mask.sum())
 se_pct  = se_n / N_STORMS * 100
 
 print(f"Landfalls in SE Atlantic (lat 25.4-27.0, lon > -80.5): "
       f"{se_n:,} / {N_STORMS:,} = {se_pct:.1f}%")
-print("  Segments 2+3 alone: weights 5.5/18.5 = 29.7%")
-print("  Partial segs 1 and 4 push the expected total to ~35-40%")
-if se_pct >= 30:
-    print(f"  [OK] SE corridor share {se_pct:.1f}% is within expected range")
+
+# Data-implied SE fraction: project each HURDAT2 KDE sample point from
+# arc-length to lat/lon and apply the same corridor box.
+# Validates that KDE sampling reproduces the data's spatial distribution
+# (genuine check: simulated vs the historical sample the KDE was fitted on).
+_data_pts = []
+for _s in _S_SAMPLES_KM:
+    _pt = _COAST_LINE_3086.interpolate(float(_s) * 1e3)
+    _lon, _lat = _FROM_3086.transform(_pt.x, _pt.y)
+    _data_pts.append((_lon, _lat))
+_data_lons_arr = np.array([p[0] for p in _data_pts])
+_data_lats_arr = np.array([p[1] for p in _data_pts])
+_data_se_mask  = (
+    (_data_lats_arr >= 25.4) & (_data_lats_arr <= 27.0) & (_data_lons_arr > -80.5)
+)
+data_se_pct = float(_data_se_mask.sum()) / len(_S_SAMPLES_KM) * 100
+_SE_TOL_PP  = 5.0
+
+print(f"  Historical (HURDAT2) SE fraction: {data_se_pct:.1f}%  "
+      f"(n={len(_S_SAMPLES_KM)} KDE samples)")
+print(f"  Simulated SE fraction:            {se_pct:.1f}%  "
+      f"(n={N_STORMS:,} storms)")
+if abs(se_pct - data_se_pct) <= _SE_TOL_PP:
+    print(f"  [OK] |simulated - historical| = "
+          f"{abs(se_pct - data_se_pct):.1f} pp <= {_SE_TOL_PP:.0f} pp tolerance")
 else:
-    print(f"  [WARN] SE corridor share {se_pct:.1f}% is lower than expected (~35%)")
+    print(f"  [WARN] |simulated - historical| = "
+          f"{abs(se_pct - data_se_pct):.1f} pp > {_SE_TOL_PP:.0f} pp tolerance")
 print()
 
 # ===========================================================================
@@ -240,12 +268,17 @@ print(f"  2 counties hit : {n2:>6,}  ({n2 / N_STORMS * 100:.1f}%)")
 print(f"  3+ counties hit: {n3p:>6,}  ({n3p / N_STORMS * 100:.1f}%)")
 print(f"  Multi-county (2+ counties): {multi_pct:.1f}% of all storms")
 
-if multi_pct >= 10:
+# Sanity floor (~25%): loose qualitative lower bound confirming spatial
+# correlation is present. Not a calibration target — depends on portfolio
+# geometry, not an external reference.
+_MULTI_FLOOR_PCT = 25.0
+if multi_pct >= _MULTI_FLOOR_PCT:
     d3_verdict = ("MULTI-COUNTY ACCUMULATION PRESENT -- "
                   "spatial correlation is realistic")
 else:
-    d3_verdict = ("ACCUMULATION ABSENT -- spread too local; "
-                  "portfolio PMLs may be understated")
+    d3_verdict = (f"LOW ACCUMULATION ({multi_pct:.1f}% < {_MULTI_FLOOR_PCT:.0f}% "
+                  "sanity floor) -- check track heading range; "
+                  "may understate portfolio PMLs")
 print(f"  Result: {d3_verdict}")
 print()
 
@@ -256,11 +289,15 @@ print("=" * 62)
 print("FINAL SUMMARY")
 print("=" * 62)
 
-# 1. SE coast coverage
-if se_pct >= 30:
-    c1 = f"SE Atlantic coast WELL COVERED  ({se_pct:.1f}% of landfalls)"
+# 1. KDE SE corridor fidelity
+if abs(se_pct - data_se_pct) <= _SE_TOL_PP:
+    c1 = (f"KDE SE fraction matches historical  "
+          f"({se_pct:.1f}% simulated vs {data_se_pct:.1f}% data, "
+          f"within {_SE_TOL_PP:.0f} pp)")
 else:
-    c1 = f"SE Atlantic coast UNDER-SAMPLED  ({se_pct:.1f}% -- expected ~35%)"
+    c1 = (f"KDE SE fraction mismatch  "
+          f"({se_pct:.1f}% simulated vs {data_se_pct:.1f}% data, "
+          f">{_SE_TOL_PP:.0f} pp delta)")
 print(f"1. Landfall  : {c1}")
 
 # 2. SE corridor wind sweep
